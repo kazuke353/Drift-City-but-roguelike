@@ -264,7 +264,7 @@ export class Game {
       return;
     }
     const h = car.root.rotation.y;
-    this.headlight.intensity = 60;
+    this.headlight.intensity = 14;
     this.headlight.position.set(x + Math.sin(h) * 2.4, 1.1, z + Math.cos(h) * 2.4);
     this.headlight.target.position.set(x + Math.sin(h) * 16, 0, z + Math.cos(h) * 16);
     this.headlight.target.updateMatrixWorld();

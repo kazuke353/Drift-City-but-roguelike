@@ -20,8 +20,8 @@ export class MenuScene {
   t = 0;
   cx: number;
   cz: number;
-  private focus = { right: 3.2, up: 0.2 };
-  private focusT = { right: 3.2, up: 0.2 };
+  private focus = { right: 3.0, up: 0.2, r: 11 };
+  private focusT = { right: 3.0, up: 0.2, r: 11 };
 
   constructor(private game: Game) {
     const biome = BIOMES[Math.floor(Math.random() * 3)];
@@ -68,7 +68,7 @@ export class MenuScene {
 
   /** Where the car sits on screen: 'title' = right of the menu, 'select' = high, leaving room for the cards. */
   setFocus(kind: 'title' | 'select') {
-    this.focusT = kind === 'select' ? { right: 0, up: 1.9 } : { right: 3.2, up: 0.2 };
+    this.focusT = kind === 'select' ? { right: 0, up: 3.5, r: 10 } : { right: 3.0, up: 0.2, r: 11 };
   }
 
   setCar(id: string) {
@@ -94,7 +94,7 @@ export class MenuScene {
     this.t += dt;
     const cam = this.game.renderer.camera;
     const close = new URLSearchParams(location.search).has('closeup');
-    const a = close ? 2.2 + this.t * 0.4 : this.t * 0.18;
+    const a = close ? 2.2 + this.t * 0.4 : 1.4 + Math.sin(this.t * 0.22) * 0.5;
     const r = close ? 7.2 : 13;
     const ov = (window as any).__cam as { a: number; r: number; h: number; ty: number; tx?: number; tz?: number } | undefined;
     if (ov) {
@@ -104,9 +104,11 @@ export class MenuScene {
       cam.position.set(this.cx + Math.sin(a) * r, 2.5, this.cz + Math.cos(a) * r);
       cam.lookAt(this.cx, 0.85, this.cz);
     } else {
-      this.focus.right += (this.focusT.right - this.focus.right) * Math.min(1, dt * 3);
-      this.focus.up += (this.focusT.up - this.focus.up) * Math.min(1, dt * 3);
-      const px = this.cx + Math.sin(a) * r, pz = this.cz + Math.cos(a) * r;
+      const k = Math.min(1, dt * 3);
+      this.focus.right += (this.focusT.right - this.focus.right) * k;
+      this.focus.up += (this.focusT.up - this.focus.up) * k;
+      this.focus.r += (this.focusT.r - this.focus.r) * k;
+      const px = this.cx + Math.sin(a) * this.focus.r, pz = this.cz + Math.cos(a) * this.focus.r;
       cam.position.set(px, 3.6 + Math.sin(this.t * 0.3) * 0.5, pz);
       const fx = this.cx - px, fz = this.cz - pz, fl = Math.hypot(fx, fz) || 1;
       const rx = -fz / fl, rz = fx / fl;

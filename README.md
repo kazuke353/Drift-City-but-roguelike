@@ -64,18 +64,31 @@ Gamepad is supported too (sticks, triggers fire, A handbrake, RB nitro, Y gadget
 
 ## Tech
 
-TypeScript + [three.js](https://threejs.org) + Vite. No art or audio assets — models, textures and sounds are all
-generated in code.
+TypeScript + [three.js](https://threejs.org) + Vite. 3D models are generated in code; textures, UI art and portraits
+come from the supplied reference sheets and the *Dungeon Drive* asset pack (see below); audio is synthesized.
 
 ```
 src/
   core/      input, RNG, save data
-  render/    renderer & post-processing, toon materials, procedural textures, light pool
-  world/     dungeon generation, level mesh building, collision grid & flow-field navigation
-  entities/  player car, car/weapon models, enemies, bosses, pickups, props
+  render/    renderer & post-processing (ink outlines, SSAO, split-tone grade), toon / paint / stone materials,
+             light map, detail textures, art loader
+  world/     dungeon generation, level mesh building + dressing, light baking, collision grid & flow-field nav
+  entities/  player cars (lofted bodies, camo livery), weapon models, enemies, bosses, pickups, props
   combat/    weapons, gadgets, projectiles
   loot/      items, relics, perks
   game/      game loop, world simulation, run state, camera
   audio/     synthesized SFX and adaptive music
-  ui/        HUD, menus, icons, navigator portrait
+  ui/        HUD, menus, item cards, portraits, torn-edge frames (frames.css is generated)
+public/art/  sliced UI-kit art + processed asset-pack textures/sprites
+art-src/     the source reference sheets (ref1-5.webp) and asset-pack notes
+tools/       slice_assets.py, process_pack.py, gen_frames.py  (regenerate everything in public/art and frames.css)
+```
+
+### Regenerating art
+
+```
+pip install pillow numpy scipy opencv-python-headless
+python3 tools/slice_assets.py            # icons, weapons, wheels, portraits, cards from art-src/ref*.webp
+python3 tools/process_pack.py <pack-dir> # seamless textures + height maps + sprites from the asset pack
+python3 tools/gen_frames.py              # torn-edge UI frames -> src/ui/frames.css
 ```
