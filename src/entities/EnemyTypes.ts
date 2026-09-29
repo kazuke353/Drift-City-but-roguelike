@@ -1,107 +1,9 @@
-import * as THREE from 'three';
-import { Enemy, type EnemyDef, type EnemyVisual } from './Enemy';
+import { Enemy, type EnemyDef } from './Enemy';
 import type { World } from '../game/World';
-import { toon, glow } from '../render/Toon';
+import { skeletonModel as skeleton, houndModel, goblinModel, bruteModel, necroModel, buggyModel, mimicModel, sentryModel, wraithModel, impModel } from './EnemyModels';
 import { angleDiff, headingOf, clamp, damp } from '../core/MathUtil';
 import { audio } from '../audio/Audio';
 import { rand } from '../core/Rng';
-
-// ------------------------------------------------------------------ model helpers
-const G = {
-  box: (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d),
-  cyl: (rt: number, rb: number, h: number, s = 8) => new THREE.CylinderGeometry(rt, rb, h, s),
-  sph: (r: number, w = 10, h = 8) => new THREE.SphereGeometry(r, w, h),
-  cone: (r: number, h: number, s = 7) => new THREE.ConeGeometry(r, h, s),
-};
-function m(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, parent?: THREE.Object3D) {
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(x, y, z);
-  mesh.rotation.set(rx, ry, rz);
-  if (parent) parent.add(mesh);
-  return mesh;
-}
-function pivot(x: number, y: number, z: number, parent: THREE.Object3D) {
-  const g = new THREE.Group();
-  g.position.set(x, y, z);
-  parent.add(g);
-  return g;
-}
-
-const bone = () => toon(0xe8dfc6);
-const boneDark = () => toon(0xb8ab88);
-const eyeRed = () => glow(0xff2a1a, 4);
-
-function skeleton(kind: 'sword' | 'bow' | 'knight'): EnemyVisual {
-  const root = new THREE.Group();
-  const B = bone(), D = boneDark();
-  const hips = pivot(0, 1.55, 0, root);
-  m(G.box(0.7, 0.22, 0.35), D, 0, 0, 0, 0, 0, 0, hips);
-  const legs: THREE.Group[] = [];
-  const knees: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const leg = pivot(s * 0.26, 0, 0, hips);
-    m(G.cyl(0.08, 0.07, 0.8), B, 0, -0.4, 0, 0, 0, 0, leg);
-    m(G.sph(0.1, 6, 5), D, 0, -0.8, 0, 0, 0, 0, leg);
-    const knee = pivot(0, -0.8, 0, leg);
-    m(G.cyl(0.07, 0.06, 0.72), B, 0, -0.36, 0, 0, 0, 0, knee);
-    m(G.box(0.18, 0.08, 0.34), D, 0, -0.72, 0.08, 0, 0, 0, knee);
-    legs.push(leg);
-    knees.push(knee);
-  }
-  const torso = pivot(0, 0.1, 0, hips);
-  m(G.cyl(0.07, 0.07, 1.0), D, 0, 0.5, -0.05, 0, 0, 0, torso);
-  for (let i = 0; i < 4; i++) {
-    const rib = new THREE.TorusGeometry(0.34 - i * 0.03, 0.05, 5, 12, Math.PI * 1.3);
-    m(rib, B, 0, 0.35 + i * 0.17, 0.02, Math.PI / 2, 0, Math.PI * 0.85 + Math.PI, torso);
-  }
-  m(G.box(1.0, 0.14, 0.24), B, 0, 1.08, 0, 0, 0, 0, torso);
-  const arms: THREE.Group[] = [];
-  const elbows: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const arm = pivot(s * 0.52, 1.05, 0, torso);
-    m(G.cyl(0.065, 0.06, 0.7), B, 0, -0.35, 0, 0, 0, 0, arm);
-    const el = pivot(0, -0.7, 0, arm);
-    m(G.cyl(0.06, 0.05, 0.62), B, 0, -0.31, 0, 0, 0, 0, el);
-    arms.push(arm);
-    elbows.push(el);
-  }
-  const head = pivot(0, 1.32, 0.02, torso);
-  m(G.sph(0.34, 10, 8), B, 0, 0.18, 0, 0, 0, 0, head).scale.set(1, 1.05, 1.1);
-  m(G.box(0.36, 0.14, 0.3), B, 0, -0.08, 0.1, 0, 0, 0, head);
-  const eyes = eyeRed();
-  for (const s of [-1, 1]) m(G.sph(0.075, 6, 5), eyes, s * 0.12, 0.2, 0.3, 0, 0, 0, head);
-  let weapon: THREE.Object3D | null = null;
-  let glowTip: THREE.Object3D | null = null;
-  if (kind === 'sword' || kind === 'knight') {
-    const hand = pivot(0, -0.62, 0, elbows[1]);
-    const w = new THREE.Group();
-    m(G.box(0.1, 1.5, 0.24), toon(0xa8adb8), 0, 0.85, 0, 0, 0, 0, w);
-    m(G.box(0.5, 0.08, 0.14), toon(0x5a3a1a), 0, 0.1, 0, 0, 0, 0, w);
-    w.rotation.x = Math.PI / 2;
-    hand.add(w);
-    weapon = w;
-  }
-  if (kind === 'knight') {
-    const helm = toon(0x5a5f6e);
-    m(G.cyl(0.38, 0.4, 0.42, 10), helm, 0, 0.3, 0, 0, 0, 0, head);
-    m(G.box(0.1, 0.35, 0.5), toon(0x8e1420), 0, 0.62, -0.02, 0, 0, 0, head);
-    m(G.box(0.85, 0.7, 0.5), helm, 0, 0.72, 0.02, 0, 0, 0, torso);
-    const sh = pivot(0, -0.5, 0.1, elbows[0]);
-    m(G.box(0.12, 0.9, 0.7), toon(0x8e1420), 0, 0, 0.1, 0, 0, 0, sh);
-  }
-  if (kind === 'bow') {
-    const hand = pivot(0, -0.62, 0, elbows[0]);
-    const bow = new THREE.Group();
-    m(new THREE.TorusGeometry(0.75, 0.05, 5, 14, Math.PI * 0.9), toon(0x5a3a1a), 0, 0, 0, 0, Math.PI / 2, Math.PI * 0.55, bow);
-    m(G.cyl(0.015, 0.015, 1.4, 3), toon(0xe8e0d0), -0.1, 0, 0, 0, 0, 0, bow);
-    const tip = m(G.cone(0.08, 0.3, 5), glow(0xff5a2a, 5), 0.1, 0, 0.35, Math.PI / 2, 0, 0, bow);
-    tip.visible = false;
-    glowTip = tip;
-    hand.add(bow);
-    weapon = bow;
-  }
-  return { root, parts: { hips, torso, head, legL: legs[0], legR: legs[1], kneeL: knees[0], kneeR: knees[1], armL: arms[0], armR: arms[1], elL: elbows[0], elR: elbows[1], ...(weapon ? { weapon } : {}), ...(glowTip ? { glowTip } : {}) } };
-}
 
 function bipedWalk(e: Enemy, dt: number, stride = 1.3, amp = 0.65) {
   const p = e.visual.parts;
@@ -138,7 +40,7 @@ function setState(e: Enemy, s: string) {
 const bonewalker: EnemyDef = {
   id: 'bonewalker', name: 'Bonewalker', hp: 60, speed: 11, radius: 0.9, height: 3.1, mass: 0.8, damage: 28, xp: 10, gold: 3,
   body: 'bone', cost: 1, minFloor: 0, acts: [1, 2, 3], weight: 10,
-  spheres: [{ y: 1.4, r: 0.8, crit: false }, { y: 2.95, r: 0.42, crit: true }],
+  spheres: [{ y: 1.7, r: 0.95, crit: false }, { y: 3.28, r: 0.45, crit: true }],
   build: () => skeleton('sword'),
   ai: (e, w, dt) => {
     const p = w.player;
@@ -198,7 +100,7 @@ const boneknight: EnemyDef = {
 const bonearcher: EnemyDef = {
   id: 'bonearcher', name: 'Bone Archer', hp: 45, speed: 9, radius: 0.9, height: 3.1, mass: 0.7, damage: 20, xp: 12, gold: 4,
   body: 'bone', cost: 1.3, minFloor: 0, acts: [1, 3], weight: 6,
-  spheres: [{ y: 1.4, r: 0.8, crit: false }, { y: 2.95, r: 0.42, crit: true }],
+  spheres: [{ y: 1.7, r: 0.95, crit: false }, { y: 3.28, r: 0.45, crit: true }],
   build: () => skeleton('bow'),
   ai: (e, w, dt) => {
     const p = w.player;
@@ -252,43 +154,10 @@ const bonearcher: EnemyDef = {
   onDeath: bonewalker.onDeath,
 };
 
-function houndModel(): EnemyVisual {
-  const root = new THREE.Group();
-  const skin = toon(0x4a1414, { emissive: 0x200000, emissiveIntensity: 1 });
-  const dark = toon(0x1e0a0a);
-  const crack = glow(0xff3010, 2.2);
-  const body = pivot(0, 1.35, 0, root);
-  m(G.box(1.0, 0.85, 1.9), skin, 0, 0, 0, 0, 0, 0, body);
-  m(G.sph(0.7, 10, 8), skin, 0, 0.15, 0.7, 0, 0, 0, body).scale.set(1.1, 1, 1);
-  for (let i = 0; i < 4; i++) m(G.cone(0.14, 0.5, 5), dark, 0, 0.6, 0.6 - i * 0.45, -0.3, 0, 0, body);
-  m(G.box(0.1, 0.05, 1.3), crack, 0.51, 0.1, 0, 0, 0, 0.3, body);
-  m(G.box(0.1, 0.05, 1.3), crack, -0.51, 0.1, 0, 0, 0, -0.3, body);
-  const head = pivot(0, 0.3, 1.25, body);
-  m(G.box(0.7, 0.6, 0.7), skin, 0, 0, 0.1, 0, 0, 0, head);
-  m(G.box(0.5, 0.35, 0.6), skin, 0, -0.12, 0.6, 0, 0, 0, head);
-  const jaw = pivot(0, -0.3, 0.3, head);
-  m(G.box(0.45, 0.12, 0.6), dark, 0, 0, 0.3, 0, 0, 0, jaw);
-  for (const s of [-1, 1]) {
-    m(G.cone(0.1, 0.6, 5), toon(0xd8d0b8), s * 0.28, 0.45, -0.05, -0.6, 0, s * 0.35, head);
-    m(G.sph(0.08, 6, 5), eyeRed(), s * 0.2, 0.1, 0.46, 0, 0, 0, head);
-    for (let k = 0; k < 2; k++) m(G.cone(0.04, 0.16, 4), toon(0xf0f0e0), s * 0.12 + k * s * 0.08, -0.3, 0.85, Math.PI, 0, 0, head);
-  }
-  const legs: THREE.Group[] = [];
-  for (const [x, z] of [[-0.42, 0.65], [0.42, 0.65], [-0.42, -0.7], [0.42, -0.7]]) {
-    const leg = pivot(x, -0.2, z, body);
-    m(G.cyl(0.15, 0.1, 1.1, 6), skin, 0, -0.55, 0, 0, 0, 0, leg);
-    m(G.box(0.22, 0.12, 0.34), dark, 0, -1.12, 0.08, 0, 0, 0, leg);
-    legs.push(leg);
-  }
-  const tail = pivot(0, 0.2, -0.95, body);
-  m(G.cone(0.14, 1.1, 5), skin, 0, 0, -0.5, -Math.PI / 2 - 0.4, 0, 0, tail);
-  return { root, parts: { body, head, jaw, tail, l0: legs[0], l1: legs[1], l2: legs[2], l3: legs[3] } };
-}
-
 const hellhound: EnemyDef = {
   id: 'hellhound', name: 'Hellhound', hp: 70, speed: 21, radius: 1.1, height: 2.2, mass: 1.0, damage: 24, xp: 13, gold: 4,
   body: 'flesh', cost: 1.4, minFloor: 0, acts: [1, 2, 3], weight: 7,
-  spheres: [{ y: 1.3, r: 1.1, crit: false }, { y: 1.8, r: 0.5, crit: true, fwd: 1.4 }],
+  spheres: [{ y: 1.3, r: 1.1, crit: false }, { y: 2.0, r: 0.5, crit: true, fwd: 1.65 }],
   build: houndModel,
   ai: (e, w, dt) => {
     const p = w.player;
@@ -363,46 +232,6 @@ const hellhound: EnemyDef = {
   },
 };
 
-function goblinModel(bomb: boolean): EnemyVisual {
-  const root = new THREE.Group();
-  const skin = toon(0x5aa83a);
-  const cloth = toon(0x6a3a1a);
-  const hips = pivot(0, 0.9, 0, root);
-  const legs: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const l = pivot(s * 0.2, 0, 0, hips);
-    m(G.cyl(0.1, 0.09, 0.8, 6), skin, 0, -0.4, 0, 0, 0, 0, l);
-    m(G.box(0.22, 0.1, 0.36), cloth, 0, -0.82, 0.08, 0, 0, 0, l);
-    legs.push(l);
-  }
-  const torso = pivot(0, 0, 0, hips);
-  m(G.sph(0.45, 10, 8), cloth, 0, 0.35, 0, 0, 0, 0, torso).scale.set(1, 1.1, 0.9);
-  const head = pivot(0, 0.95, 0.05, torso);
-  m(G.sph(0.42, 10, 8), skin, 0, 0, 0, 0, 0, 0, head);
-  for (const s of [-1, 1]) {
-    m(G.cone(0.14, 0.75, 5), skin, s * 0.5, 0.1, -0.05, 0, 0, s * (Math.PI / 2 + 0.3), head);
-    m(G.sph(0.08, 6, 5), glow(0xffe040, 3), s * 0.15, 0.08, 0.36, 0, 0, 0, head);
-  }
-  m(G.cone(0.08, 0.3, 5), skin, 0, -0.05, 0.45, Math.PI / 2, 0, 0, head);
-  const arms: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const a = pivot(s * 0.42, 0.55, 0, torso);
-    m(G.cyl(0.08, 0.07, 0.7, 6), skin, 0, -0.35, 0, 0, 0, 0, a);
-    arms.push(a);
-  }
-  let bombObj: THREE.Object3D | null = null;
-  let spark: THREE.Object3D | null = null;
-  if (bomb) {
-    const b = pivot(0, 1.75, 0.1, torso);
-    m(G.sph(0.5, 12, 10), toon(0x1a1a1e), 0, 0, 0, 0, 0, 0, b);
-    m(G.cyl(0.04, 0.04, 0.35, 4), toon(0x8a6a3a), 0, 0.55, 0, 0, 0, 0, b);
-    spark = m(G.sph(0.12, 6, 5), glow(0xffa020, 5), 0, 0.76, 0, 0, 0, 0, b);
-    bombObj = b;
-    arms.forEach((a) => (a.rotation.x = -2.8));
-  }
-  return { root, parts: { hips, torso, head, legL: legs[0], legR: legs[1], armL: arms[0], armR: arms[1], ...(bombObj ? { bomb: bombObj } : {}), ...(spark ? { spark } : {}) } };
-}
-
 const goblinBomber: EnemyDef = {
   id: 'bomber', name: 'Goblin Bomber', hp: 32, speed: 17, radius: 0.8, height: 2.6, mass: 0.5, damage: 55, xp: 9, gold: 5,
   body: 'flesh', cost: 1.1, minFloor: 0, acts: [1, 2], weight: 5,
@@ -441,46 +270,6 @@ const goblinBomber: EnemyDef = {
     w.fx.gooBurst(e.pos.x, 1.2, e.pos.z, [0.3, 0.8, 0.2], 8);
   },
 };
-
-function bruteModel(): EnemyVisual {
-  const root = new THREE.Group();
-  const skin = toon(0x6a2020, { emissive: 0x200404, emissiveIntensity: 1 });
-  const dark = toon(0x2a0e0e);
-  const crack = glow(0xff4010, 2.4);
-  const stone = toon(0x6a6a72);
-  const hips = pivot(0, 1.8, 0, root);
-  const legs: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const l = pivot(s * 0.7, 0, 0, hips);
-    m(G.cyl(0.42, 0.34, 1.8, 8), skin, 0, -0.9, 0, 0, 0, 0, l);
-    m(G.box(0.8, 0.3, 1.0), dark, 0, -1.75, 0.15, 0, 0, 0, l);
-    legs.push(l);
-  }
-  const torso = pivot(0, 0.2, 0, hips);
-  m(G.sph(1.35, 12, 10), skin, 0, 1.2, 0, 0, 0, 0, torso).scale.set(1.2, 1.05, 0.9);
-  m(G.sph(1.0, 10, 8), dark, 0, 0.1, 0.1, 0, 0, 0, torso).scale.set(1.2, 0.7, 1);
-  for (let i = 0; i < 5; i++) m(G.box(0.1, 0.9, 0.08), crack, rand(-0.9, 0.9), 1.2 + rand(-0.4, 0.5), 1.15, 0, 0, rand(-0.6, 0.6), torso);
-  const head = pivot(0, 2.35, 0.55, torso);
-  m(G.box(1.0, 0.85, 0.9), skin, 0, 0, 0, 0, 0, 0, head);
-  for (const s of [-1, 1]) {
-    const horn = m(G.cone(0.22, 1.1, 6), toon(0x2a2020), s * 0.6, 0.55, -0.1, -0.4, 0, s * -0.7, head);
-    horn.castShadow = true;
-    m(G.sph(0.12, 6, 5), eyeRed(), s * 0.24, 0.12, 0.46, 0, 0, 0, head);
-    m(G.cone(0.08, 0.35, 5), toon(0xf0e8d0), s * 0.3, -0.42, 0.42, 0, 0, 0, head);
-  }
-  const arms: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const a = pivot(s * 1.6, 1.8, 0, torso);
-    m(G.sph(0.5, 8, 6), dark, 0, 0, 0, 0, 0, 0, a);
-    m(G.cyl(0.36, 0.3, 1.5, 8), skin, 0, -0.8, 0, 0, 0, 0, a);
-    m(G.sph(0.42, 8, 6), skin, 0, -1.65, 0, 0, 0, 0, a);
-    arms.push(a);
-  }
-  const block = pivot(0, 3.4, 0.3, torso);
-  m(G.box(2.4, 1.3, 1.4), stone, 0, 0, 0, 0, 0, 0, block);
-  m(G.box(2.5, 0.14, 1.5), crack, 0, 0.1, 0, 0, 0, 0.1, block);
-  return { root, parts: { hips, torso, head, legL: legs[0], legR: legs[1], armL: arms[0], armR: arms[1], block } };
-}
 
 const brute: EnemyDef = {
   id: 'brute', name: 'Stoneback Brute', hp: 620, speed: 7.5, radius: 2.2, height: 6.2, mass: 6, damage: 70, xp: 60, gold: 18,
@@ -562,31 +351,6 @@ const brute: EnemyDef = {
     audio.play('explosion', { x: e.pos.x, z: e.pos.z });
   },
 };
-
-function necroModel(): EnemyVisual {
-  const root = new THREE.Group();
-  const robe = toon(0x2a1840);
-  const trim = toon(0x8a6a2a);
-  const float = pivot(0, 0.6, 0, root);
-  m(G.cone(1.0, 2.6, 10), robe, 0, 1.3, 0, 0, 0, 0, float);
-  m(G.cyl(1.02, 1.02, 0.15, 10), trim, 0, 0.1, 0, 0, 0, 0, float);
-  const head = pivot(0, 2.7, 0, float);
-  m(G.sph(0.46, 10, 8), robe, 0, 0, 0, 0, 0, 0, head);
-  m(G.cone(0.3, 0.7, 6), robe, 0, 0.3, -0.35, -1.2, 0, 0, head);
-  m(G.sph(0.32, 8, 6), toon(0x0a0610), 0, -0.05, 0.2, 0, 0, 0, head);
-  for (const s of [-1, 1]) m(G.sph(0.07, 6, 5), glow(0xc040ff, 5), s * 0.12, 0, 0.45, 0, 0, 0, head);
-  const arms: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const a = pivot(s * 0.55, 2.2, 0, float);
-    m(G.cone(0.25, 1.1, 6), robe, 0, -0.5, 0, Math.PI, 0, 0, a);
-    arms.push(a);
-  }
-  const staff = pivot(0, -1.0, 0.2, arms[1]);
-  m(G.cyl(0.06, 0.06, 3.2, 5), toon(0x3a2a1a), 0, 0.6, 0, 0, 0, 0, staff);
-  m(G.sph(0.22, 8, 6), toon(0xe8dfc6), 0, 2.2, 0, 0, 0, 0, staff);
-  const orb = m(G.sph(0.28, 10, 8), glow(0xb040ff, 3.5), 0, 2.55, 0, 0, 0, 0, staff);
-  return { root, parts: { float, head, armL: arms[0], armR: arms[1], staff, orb } };
-}
 
 const necro: EnemyDef = {
   id: 'necro', name: 'Crypt Cultist', hp: 170, speed: 8, radius: 1.1, height: 3.8, mass: 1.2, damage: 18, xp: 28, gold: 10,
@@ -674,44 +438,6 @@ const necro: EnemyDef = {
     audio.play('bone', { x: e.pos.x, z: e.pos.z });
   },
 };
-
-function buggyModel(big: boolean): EnemyVisual {
-  const root = new THREE.Group();
-  const s = big ? 1.35 : 1;
-  const body = pivot(0, 0, 0, root);
-  const rust = toon(big ? 0x3a3a40 : 0x7a4a22);
-  const dark = toon(0x1a1a1e);
-  m(G.box(1.9 * s, 0.7 * s, 3.2 * s), rust, 0, 0.95 * s, 0, 0, 0, 0, body);
-  m(G.box(1.6 * s, 0.4 * s, 1.2 * s), dark, 0, 1.45 * s, -0.4 * s, 0, 0, 0, body);
-  for (let i = 0; i < 5; i++) m(G.cone(0.13 * s, 0.7 * s, 5), toon(0xc8ccd6), (i / 4 - 0.5) * 1.6 * s, 0.9 * s, 1.85 * s, Math.PI / 2, 0, 0, body);
-  // driver
-  const drv = pivot(0, 1.7 * s, -0.3 * s, body);
-  if (big) {
-    m(G.sph(0.42, 10, 8), toon(0xe8dfc6), 0, 0.35, 0, 0, 0, 0, drv);
-    for (const x of [-0.13, 0.13]) m(G.sph(0.08, 6, 5), eyeRed(), x, 0.4, 0.34, 0, 0, 0, drv);
-    for (const x of [-0.7, 0.7]) m(G.cyl(0.14, 0.14, 1.6, 8), toon(0xc8ccd6), x, 1.1, -1.6, 0, 0, 0, drv);
-  } else {
-    m(G.sph(0.35, 10, 8), toon(0x5aa83a), 0, 0.35, 0, 0, 0, 0, drv);
-    for (const x of [-1, 1]) {
-      m(G.cone(0.1, 0.55, 5), toon(0x5aa83a), x * 0.38, 0.4, 0, 0, 0, x * (Math.PI / 2 + 0.3), drv);
-      m(G.sph(0.06, 6, 5), glow(0xffe040, 3), x * 0.13, 0.4, 0.3, 0, 0, 0, drv);
-    }
-  }
-  const gun = pivot(0, 1.8 * s, 0.6 * s, body);
-  m(G.box(0.3, 0.3, 0.6), dark, 0, 0, 0, 0, 0, 0, gun);
-  m(G.cyl(0.06, 0.06, 0.9, 6), dark, 0, 0, 0.6, Math.PI / 2, 0, 0, gun);
-  if (big) m(G.cyl(0.06, 0.06, 0.9, 6), dark, 0.15, 0, 0.6, Math.PI / 2, 0, 0, gun);
-  const wheels: THREE.Object3D[] = [];
-  for (const [x, z] of [[-1, 1.1], [1, 1.1], [-1, -1.1], [1, -1.1]]) {
-    const w = pivot(x * 1.05 * s, 0.55 * s, z * s, root);
-    const t = m(G.cyl(0.55 * s, 0.55 * s, 0.45 * s, 12), toon(0x19191c), 0, 0, 0, 0, 0, Math.PI / 2, w);
-    m(G.cyl(0.3 * s, 0.3 * s, 0.48 * s, 8), toon(0x8a6a3a), 0, 0, 0, 0, 0, Math.PI / 2, w);
-    void t;
-    wheels.push(w);
-  }
-  const lights = [-0.6, 0.6].map((x) => m(G.sph(0.14, 6, 5), glow(0xffd24a, 3), x * s, 1.1 * s, 1.62 * s, 0, 0, 0, body));
-  return { root, parts: { body, gun, w0: wheels[0], w1: wheels[1], w2: wheels[2], w3: wheels[3], l0: lights[0], l1: lights[1] } };
-}
 
 function vehicleAI(e: Enemy, w: World, dt: number, cruise: number, charge: number, burst: number, spread: number) {
   const p = w.player;
@@ -815,31 +541,6 @@ const trucker: EnemyDef = {
   },
 };
 
-function mimicModel(): EnemyVisual {
-  const root = new THREE.Group();
-  const wood = toon(0x7a4a22);
-  const gold = toon(0xe0aa2a, { emissive: 0x3a2400, emissiveIntensity: 0.6 });
-  const body = pivot(0, 0, 0, root);
-  m(G.box(2.2, 1.2, 1.5), wood, 0, 0.6, 0, 0, 0, 0, body);
-  m(G.box(2.3, 0.14, 1.6), gold, 0, 1.18, 0, 0, 0, 0, body);
-  for (const x of [-0.9, 0.9]) m(G.box(0.14, 1.25, 1.6), gold, x, 0.62, 0, 0, 0, 0, body);
-  const lidP = pivot(0, 1.2, -0.75, body);
-  m(G.box(2.2, 0.6, 1.5), wood, 0, 0.3, 0.75, 0, 0, 0, lidP);
-  m(G.box(2.3, 0.14, 1.6), gold, 0, 0.02, 0.75, 0, 0, 0, lidP);
-  m(G.box(0.3, 0.4, 0.1), gold, 0, 0.1, 1.55, 0, 0, 0, lidP);
-  const teeth = toon(0xf4f0e0);
-  for (let i = 0; i < 7; i++) {
-    const x = -0.9 + i * 0.3;
-    m(G.cone(0.1, 0.35, 4), teeth, x, 1.05, 0.68, 0, 0, 0, body);
-    m(G.cone(0.1, 0.35, 4), teeth, x, -0.12, 1.45, Math.PI, 0, 0, lidP);
-  }
-  const inner = m(G.box(1.9, 0.1, 1.2), toon(0x3a0610, { emissive: 0x400010, emissiveIntensity: 1 }), 0, 1.05, 0, 0, 0, 0, body);
-  const tongue = m(G.box(0.5, 0.12, 1.4), toon(0xd0304a), 0, 1.15, 0.6, 0, 0, 0, body);
-  const eyes = [-0.4, 0.4].map((x) => m(G.sph(0.12, 6, 5), glow(0xffe040, 4), x, 1.2, -0.3, 0, 0, 0, body));
-  void inner;
-  return { root, parts: { body, lid: lidP, tongue, e0: eyes[0], e1: eyes[1] } };
-}
-
 const mimic: EnemyDef = {
   id: 'mimic', name: 'Mimic', hp: 420, speed: 15, radius: 1.4, height: 2.2, mass: 1.8, damage: 45, xp: 60, gold: 60,
   body: 'flesh', cost: 99, minFloor: 0, acts: [1, 2, 3], weight: 0,
@@ -904,21 +605,6 @@ const mimic: EnemyDef = {
   },
 };
 
-function sentryModel(): EnemyVisual {
-  const root = new THREE.Group();
-  m(new THREE.DodecahedronGeometry(1.4, 0), toon(0x4a4058), 0, 0.8, 0, 0, 0, 0, root).scale.set(1.2, 0.7, 1.2);
-  const spin = pivot(0, 2.6, 0, root);
-  const crystal = m(new THREE.OctahedronGeometry(1, 0), toon(0x9a4cff, { emissive: 0x9a4cff, emissiveIntensity: 1.6 }), 0, 0, 0, 0, 0, 0, spin);
-  crystal.scale.set(0.8, 1.7, 0.8);
-  const shards: THREE.Object3D[] = [];
-  for (let i = 0; i < 3; i++) {
-    const s = m(new THREE.OctahedronGeometry(0.35, 0), toon(0xc080ff, { emissive: 0xb44cff, emissiveIntensity: 1.2 }), Math.cos((i / 3) * 6.28) * 1.6, 0, Math.sin((i / 3) * 6.28) * 1.6, 0, 0, 0, spin);
-    s.scale.set(0.6, 1.4, 0.6);
-    shards.push(s);
-  }
-  return { root, parts: { spin, crystal } };
-}
-
 const sentry: EnemyDef = {
   id: 'sentry', name: 'Crystal Sentry', hp: 230, speed: 0, radius: 1.6, height: 4.2, mass: 99, damage: 20, xp: 26, gold: 9,
   body: 'armor', cost: 2.5, minFloor: 3, acts: [2], weight: 4, stationary: true, noRam: true,
@@ -958,29 +644,6 @@ const sentry: EnemyDef = {
     audio.play('shatter', { x: e.pos.x, z: e.pos.z });
   },
 };
-
-function wraithModel(): EnemyVisual {
-  const root = new THREE.Group();
-  const cloth = toon(0x283048, { emissive: 0x0a2030, emissiveIntensity: 1 });
-  const float = pivot(0, 1.4, 0, root);
-  m(G.cone(1.1, 2.8, 9, ), cloth, 0, 0.2, 0, Math.PI, 0, 0, float).scale.set(1, 1, 0.8);
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2;
-    m(G.cone(0.22, 0.9, 4), cloth, Math.cos(a) * 0.95, -1.4, Math.sin(a) * 0.75, Math.PI, 0, 0, float);
-  }
-  const head = pivot(0, 1.85, 0.05, float);
-  m(G.sph(0.42, 10, 8), toon(0xd8d0c0), 0, 0, 0, 0, 0, 0, head);
-  m(G.cone(0.55, 0.9, 8), cloth, 0, 0.2, -0.12, -0.25, 0, 0, head);
-  for (const s of [-1, 1]) m(G.sph(0.09, 6, 5), glow(0x40ffd0, 5), s * 0.14, 0.02, 0.36, 0, 0, 0, head);
-  const arms: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const a = pivot(s * 0.7, 1.2, 0.1, float);
-    m(G.cyl(0.1, 0.05, 1.6, 5), cloth, 0, -0.8, 0, 0, 0, 0, a);
-    for (let k = -1; k <= 1; k++) m(G.cone(0.04, 0.4, 4), toon(0xd8d0c0), k * 0.08, -1.75, 0, Math.PI, 0, 0, a);
-    arms.push(a);
-  }
-  return { root, parts: { float, head, armL: arms[0], armR: arms[1] } };
-}
 
 const wraith: EnemyDef = {
   id: 'wraith', name: 'Toll Wraith', hp: 130, speed: 13, radius: 1.1, height: 4, mass: 0.6, damage: 22, xp: 24, gold: 8,
@@ -1045,46 +708,6 @@ const wraith: EnemyDef = {
     audio.play('shatter', { x: e.pos.x, z: e.pos.z, pitch: 0.6 });
   },
 };
-
-function impModel(): EnemyVisual {
-  const root = new THREE.Group();
-  const skin = toon(0xc8401a, { emissive: 0x401000, emissiveIntensity: 1 });
-  const dark = toon(0x2a0a06);
-  const hips = pivot(0, 1.0, 0, root);
-  const legs: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const l = pivot(s * 0.22, 0, 0, hips);
-    m(G.cyl(0.12, 0.08, 0.9, 6), skin, 0, -0.45, 0, 0, 0, 0, l);
-    legs.push(l);
-  }
-  const torso = pivot(0, 0.1, 0, hips);
-  m(G.sph(0.55, 10, 8), skin, 0, 0.45, 0, 0, 0, 0, torso).scale.set(1, 1.15, 0.85);
-  m(G.box(0.08, 0.6, 0.05), glow(0xffa020, 3), 0, 0.5, 0.46, 0, 0, 0.3, torso);
-  const head = pivot(0, 1.1, 0.05, torso);
-  m(G.sph(0.4, 10, 8), skin, 0, 0, 0, 0, 0, 0, head);
-  for (const s of [-1, 1]) {
-    m(G.cone(0.1, 0.5, 5), dark, s * 0.25, 0.35, 0, 0, 0, -s * 0.5, head);
-    m(G.sph(0.07, 6, 5), glow(0xffe040, 4), s * 0.14, 0.05, 0.34, 0, 0, 0, head);
-  }
-  const wingMat = toon(0x6a1a0a, { side: THREE.DoubleSide });
-  const wings: THREE.Object3D[] = [];
-  for (const s of [-1, 1]) {
-    const wp = pivot(s * 0.3, 0.7, -0.35, torso);
-    const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(1.2, 0.5), new THREE.Vector2(1.0, -0.3), new THREE.Vector2(0.6, -0.1), new THREE.Vector2(0.4, -0.5)]);
-    const wg = new THREE.ShapeGeometry(shape);
-    const mesh = m(wg, wingMat, 0, 0, 0, 0, s > 0 ? 0 : Math.PI, 0, wp);
-    void mesh;
-    wings.push(wp);
-  }
-  const arms: THREE.Group[] = [];
-  for (const s of [-1, 1]) {
-    const a = pivot(s * 0.55, 0.75, 0, torso);
-    m(G.cyl(0.09, 0.07, 0.7, 5), skin, 0, -0.35, 0, 0, 0, 0, a);
-    arms.push(a);
-  }
-  const ball = m(G.sph(0.35, 8, 6), glow(0xff7020, 3.5), 0, -0.8, 0.1, 0, 0, 0, arms[1]);
-  return { root, parts: { hips, torso, head, legL: legs[0], legR: legs[1], armL: arms[0], armR: arms[1], wingL: wings[0], wingR: wings[1], ball } };
-}
 
 const imp: EnemyDef = {
   id: 'imp', name: 'Magma Imp', hp: 85, speed: 14, radius: 0.9, height: 2.8, mass: 0.6, damage: 30, xp: 16, gold: 5,
