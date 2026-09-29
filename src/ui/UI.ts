@@ -5,7 +5,8 @@ import type { Enemy } from '../entities/Enemy';
 import { HUD } from './HUD';
 import { icon } from './Icons';
 import { itemCardHTML, slotIcon } from './ItemCard';
-import { portraitSVG } from './Portrait';
+import { portraitFrame } from './Portrait';
+import { artImg, itemArt } from './ArtIcons';
 import { Save, type Settings } from '../core/Save';
 import { CHASSIS, META_UPGRADES } from '../game/Cars';
 import { RARITY, SLOTS, SLOT_NAMES, generateItem, type Item, type Rarity } from '../loot/Items';
@@ -124,6 +125,7 @@ export class UI {
   // =============================================================== screens
   private open(s: Screen, html: string, dim = true) {
     this.screen = s;
+    this.root.classList.toggle('modal-open', s !== 'title' && s !== 'none');
     this.screenEl.className = 'screen' + (dim ? ' dimbg' : '');
     this.screenEl.innerHTML = html;
     this.game.onModal(this.modalOpen);
@@ -132,6 +134,7 @@ export class UI {
   close() {
     const was = this.screen;
     this.screen = 'none';
+    this.root.classList.remove('modal-open');
     this.screenEl.className = 'screen hidden';
     this.screenEl.innerHTML = '';
     this.game.onModal(false);
@@ -150,22 +153,23 @@ export class UI {
   showTitle() {
     this.hud.show(false);
     const d = Save.data;
+    this.game.menu?.setFocus('title');
     this.open('title', `
       <div class="title-logo">
-        <div class="crown">${icon('crown', '', 80)}</div>
+        <div class="crown">${artImg('icon_crown')}</div>
         <div class="l1">DUNGEON</div>
         <div class="l2">DRIVERS</div>
         <div class="tag">CARS. LOOT. DUNGEONS. REPEAT.</div>
       </div>
       <div class="title-side">
-        <div class="crowns">${icon('crown', '', 28)} ${d.crowns}</div>
+        <div class="crowns">${artImg('icon_crown')} ${d.crowns}</div>
         <div class="slogan" style="margin-top:30px">Bigger loot.<br/>Badder roads.<br/>Brighter tomorrow.</div>
       </div>
       <div class="title-menu">
-        <div class="mi interactive" data-a="drive">DRIVE</div>
-        <div class="mi interactive" data-a="garage">GARAGE</div>
-        <div class="mi interactive" data-a="howto">HOW TO PLAY</div>
-        <div class="mi interactive" data-a="settings">SETTINGS</div>
+        <div class="mi interactive" data-a="drive"><i class="mk"></i>DRIVE</div>
+        <div class="mi interactive" data-a="garage"><i class="mk"></i>GARAGE</div>
+        <div class="mi interactive" data-a="howto"><i class="mk"></i>HOW TO PLAY</div>
+        <div class="mi interactive" data-a="settings"><i class="mk"></i>SETTINGS</div>
       </div>
       <div class="title-foot">RUNS ${d.runs} · WINS ${d.wins} · BEST FLOOR B${Math.max(1, d.bestFloor)} · KILLS ${formatNum(d.kills)}<br/>SAME ROADS. DIFFERENT TREASURES.</div>
     `, false);
@@ -184,9 +188,9 @@ export class UI {
     const cards = CHASSIS.map((c) => {
       const owned = d.unlockedCars.includes(c.id);
       const pips = (n: number) => Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
-      return `<div class="car-card interactive ${this.selCar === c.id ? 'sel' : ''} ${owned ? '' : 'locked'}" data-id="${c.id}">
+      return `<div class="car-card interactive ${this.selCar === c.id ? 'sel' : ''} ${owned ? '' : 'locked'}" data-id="${c.id}"><div class="cbg jag-${this.selCar === c.id ? 'red' : 'a'}"></div>
         <div class="row" style="justify-content:space-between"><div><div class="cn">${c.name}</div><div class="ct">${c.title.toUpperCase()}</div></div>
-        ${owned ? '' : `<div class="crowns" style="font-size:20px">${icon('crown', '', 20)} ${c.cost}</div>`}</div>
+        ${owned ? '' : `<div class="crowns" style="font-size:20px;padding:2px 16px 0 10px">${artImg('icon_crown', 20)} ${c.cost}</div>`}</div>
         <div class="cd">${c.desc}</div>
         <div class="cp">${c.passive}</div>
         <div class="bars2">
@@ -199,14 +203,13 @@ export class UI {
     }).join('');
     const sel = CHASSIS.find((c) => c.id === this.selCar)!;
     const owned = d.unlockedCars.includes(sel.id);
+    this.game.menu?.setFocus('select');
     this.open('select', `
-      <div class="panel-screen interactive" style="width:min(1100px,94vw)">
-        <div class="ps-head"><div class="ps-title">CHOOSE YOUR RIDE</div><div class="crowns">${icon('crown', '', 26)} ${d.crowns}</div></div>
-        <div class="car-select">${cards}</div>
-        <div class="row" style="justify-content:space-between;margin-top:18px">
-          <button class="btn" data-a="back"><span>BACK</span></button>
-          ${owned ? `<button class="btn gold" data-a="go"><span>DRIVE THE ${sel.name} ▶</span></button>` : `<button class="btn gold" data-a="buy" ${d.crowns < sel.cost ? 'disabled' : ''}><span>UNLOCK FOR ${sel.cost} CROWNS</span></button>`}
-        </div>
+      <div class="cs-top interactive"><div class="ps-title">CHOOSE YOUR RIDE</div><div class="crowns">${artImg('icon_crown')} ${d.crowns}</div></div>
+      <div class="cs-bottom interactive"><div class="car-select">${cards}</div></div>
+      <div class="cs-actions interactive">
+        <button class="btn" data-a="back"><span>BACK</span></button>
+        ${owned ? `<button class="btn gold" data-a="go"><span>DRIVE THE ${sel.name} ▶</span></button>` : `<button class="btn gold" data-a="buy" ${d.crowns < sel.cost ? 'disabled' : ''}><span>UNLOCK FOR ${sel.cost} CROWNS</span></button>`}
       </div>`, false);
     this.game.previewCar(this.selCar);
     this.bind('.car-card', (el) => {
@@ -234,24 +237,26 @@ export class UI {
   // ---------------------------------------------------------------- garage
   showGarage() {
     const d = Save.data;
+    const UPART: Record<string, string> = { hull: 'icon_heart', shield: 'icon_shieldstat', firepower: 'icon_cannon', startGold: 'pk_coin', luck: 'icon_gear', nitro: 'icon_engine', rerolls: 'icon_wheel', startRarity: 'icon_crown', secondWind: 'icon_heart', keys: 'icon_treasure' };
     const cards = META_UPGRADES.map((u) => {
       const lvl = d.upgrades[u.id] ?? 0;
       const max = u.costs.length;
       const cost = lvl < max ? u.costs[lvl] : 0;
-      return `<div class="up-card">
-        <div class="un">${icon(u.icon, '', 26, '#ffd23a')} ${u.name}</div>
-        <div class="ud">${lvl > 0 ? u.desc(lvl) : '—'}${lvl < max ? `<br/><span style="color:#9fe8ff">Next: ${u.desc(lvl + 1)}</span>` : ''}</div>
+      return `<div class="up-card"><div class="ubg jag-${'abcde'[META_UPGRADES.indexOf(u) % 5]}"></div>
+        <div class="un">${artImg(UPART[u.id] ?? 'icon_gear')} ${u.name}</div>
+        <div class="ud">${lvl > 0 ? u.desc(lvl) : '—'}${lvl < max ? `<br/><span>Next: ${u.desc(lvl + 1)}</span>` : ''}</div>
         <div class="upips">${Array.from({ length: max }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('')}</div>
-        ${lvl < max ? `<button class="btn gold" data-u="${u.id}" ${d.crowns < cost ? 'disabled' : ''} style="font-size:17px"><span>${icon('crown', '', 16)} ${cost}</span></button>` : '<div class="lbl" style="color:#ffd23a">MAXED</div>'}
+        ${lvl < max ? `<button class="btn gold" data-u="${u.id}" ${d.crowns < cost ? 'disabled' : ''}><span>${artImg('icon_crown', 18)} ${cost}</span></button>` : '<div class="lbl" style="color:#ffcb2f;font-size:16px">MAXED</div>'}
       </div>`;
     }).join('');
+    this.game.menu?.setFocus('title');
     this.open('garage', `
       <div class="panel-screen interactive">
-        <div class="ps-head"><div class="ps-title">THE GARAGE</div><div class="ps-sub">Crowns are earned every run — even the bad ones.</div><div class="crowns">${icon('crown', '', 26)} ${d.crowns}</div></div>
+        <div class="ps-head"><div class="ps-title">THE GARAGE</div><div class="ps-sub">Crowns are earned every run — even the bad ones.</div><div class="crowns">${artImg('icon_crown')} ${d.crowns}</div></div>
         <div class="garage-grid">${cards}</div>
-        <div class="row" style="justify-content:space-between;margin-top:16px">
+        <div class="row" style="justify-content:space-between;margin-top:22px">
           <button class="btn" data-a="back"><span>BACK</span></button>
-          <button class="btn" data-a="reset" style="font-size:14px"><span>RESET PROGRESS</span></button>
+          <button class="btn" data-a="reset" style="font-size:16px"><span>RESET PROGRESS</span></button>
         </div>
       </div>`);
     this.bind('[data-u]', (el) => {
@@ -401,66 +406,60 @@ export class UI {
     if (sel?.where === 'bp') selItem = run.backpack[sel.idx!] ?? null;
     const slots = SLOTS.map((s) => {
       const it = run.equipped[s];
-      return `<div class="slot-row interactive ${sel?.where === 'eq' && sel.slot === s ? 'sel' : ''} ${it ? 'bg-r' + it.rarity : ''}" data-slot="${s}">
-        ${slotIcon(it, s, 30)}<span class="sn">${SLOT_NAMES[s].toUpperCase()}</span>
-        <span class="sv ${it ? 'r' + it.rarity : ''}">${it ? it.name : '— empty —'}${it ? `<small>Lv ${it.level} ${RARITY[it.rarity].name}</small>` : ''}</span></div>`;
+      return `<div class="slot-row interactive ${sel?.where === 'eq' && sel.slot === s ? 'sel' : ''} ${it ? 'bg-r' + it.rarity : ''}" data-slot="${s}"><div class="sbg jag-${it ? 'r' + it.rarity : 'grey'}"></div>
+        <div class="sart ${it ? '' : 'empty'}">${itemArt(it, s)}</div>
+        <div><div class="sn">${SLOT_NAMES[s]}</div>
+        <div class="sv ${it ? 'r' + it.rarity : ''}">${it ? it.name : '— empty —'}${it ? `<small>Lv ${it.level} ${RARITY[it.rarity].name}</small>` : ''}</div></div></div>`;
     }).join('');
     const bp = Array.from({ length: run.backpackSize }, (_, i) => {
       const it = run.backpack[i];
-      if (!it) return `<div class="bp-cell empty">+</div>`;
-      return `<div class="bp-cell interactive bg-r${it.rarity} ${sel?.where === 'bp' && sel.idx === i ? 'sel' : ''}" data-bp="${i}">${slotIcon(it, it.slot, 26)}<span class="r${it.rarity}">${it.name}<br/><small style="color:#aaa;font-family:var(--f-body)">${SLOT_NAMES[it.slot]} Lv${it.level}</small></span></div>`;
+      if (!it) return `<div class="bp-cell empty"><div class="bbg jag-grey"></div>+</div>`;
+      return `<div class="bp-cell interactive bg-r${it.rarity} ${sel?.where === 'bp' && sel.idx === i ? 'sel' : ''}" data-bp="${i}"><div class="bbg jag-r${it.rarity}"></div>${itemArt(it, it.slot)}<div class="r${it.rarity}">${it.name}<small>${SLOT_NAMES[it.slot]} Lv${it.level}</small></div></div>`;
     }).join('');
     const eqForCmp = selItem && sel?.where === 'bp' ? run.equipped[selItem.slot] : null;
     const detail = selItem ? `
-      <div class="row" style="flex-wrap:wrap;gap:10px;justify-content:center">${eqForCmp ? `<div style="transform:scale(.85);transform-origin:top center"><div class="lbl">EQUIPPED</div>${itemCardHTML(eqForCmp)}</div>` : ''}<div>${sel?.where === 'bp' ? '<div class="lbl">SELECTED</div>' : ''}${itemCardHTML(selItem, eqForCmp)}</div></div>
-      <div class="row" style="justify-content:center;margin-top:10px;flex-wrap:wrap">
+      <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center">${eqForCmp ? `<div style="transform:scale(.8);transform-origin:top center;margin:0 -30px -30px"><div class="lbl">EQUIPPED</div>${itemCardHTML(eqForCmp)}</div>` : ''}<div>${sel?.where === 'bp' ? '<div class="lbl">SELECTED</div>' : ''}${itemCardHTML(selItem, eqForCmp)}</div></div>
+      <div class="row" style="justify-content:center;margin-top:12px;flex-wrap:wrap;gap:10px">
         ${sel?.where === 'bp' ? `<button class="btn gold" data-a="equip"><span>EQUIP</span></button>` : ''}
         ${sel?.where === 'eq' && run.backpack.length < run.backpackSize && !['main'].includes(selItem.slot) ? `<button class="btn" data-a="unequip"><span>STASH</span></button>` : ''}
-        <button class="btn" data-a="salvage"><span>SALVAGE +${run.salvageValue(selItem)}</span></button>
-      </div>` : `<div style="text-align:center;color:#999;font-size:20px;margin-top:40px">Select a part to inspect it.</div>`;
+        <button class="btn" data-a="salvage" style="font-size:19px"><span>SALVAGE +${run.salvageValue(selItem)}</span></button>
+      </div>` : `<div style="text-align:center;color:#a9a597;font-weight:800;font-style:italic;font-size:22px;margin:22px 0;text-transform:uppercase">Select a part to inspect it</div>`;
     const syn = activeSynergies(run.relics);
     const tc = tagCounts(run.relics);
     const relics = run.relics.map((id) => {
       const r = RELIC_MAP.get(id)!;
-      return `<div class="relic-row"><div class="relic-ico" style="border-color:${r.color}">${icon(r.icon, '', 20, r.color)}</div><div><b style="color:${r.color}">${r.name}</b><br/>${r.desc} <span style="color:#888">[${r.tags.join(', ')}]</span></div></div>`;
-    }).join('') || '<div style="color:#888">No relics yet. Find altars, shops and bosses.</div>';
+      return `<div class="relic-row" title="${r.desc}"><div class="relic-ico" style="--rc:${r.color}">${icon(r.icon, '', 20, r.color)}</div><div><b style="color:${r.color}">${r.name}</b><br/>${r.desc}</div></div>`;
+    }).join('') || '<div style="color:#8f8b7d;font-weight:700">No relics yet. Find altars, shops and bosses.</div>';
     const perks = Object.entries(run.perks).map(([id, n]) => `${PERK_MAP.get(id)?.name} ${n > 1 ? '×' + n : ''}`).join(' · ') || '—';
     const synText = SYNERGIES.map((s) => {
       const have = tc.get(s.tag) ?? 0;
       const on = syn.includes(s);
-      return `<div style="font-size:14px;color:${on ? '#ffd23a' : have ? '#bbb' : '#555'}">${on ? '★' : '☆'} ${s.name} (${s.tag} ${have}/${s.need})</div>`;
+      return `<div style="font-weight:800;font-style:italic;font-size:15px;color:${on ? '#ffcb2f' : have ? '#c8c4b4' : '#5d5b55'}">${on ? '★' : '☆'} ${s.name} (${s.tag} ${have}/${s.need})</div>`;
     }).join('');
     const mainDps = w.player.weapons[0] ? Math.round((w.player.weapons[0].item.w!.damage * st.dmg * w.player.weapons[0].fireRate * w.player.weapons[0].item.w!.pellets)) : 0;
+    const statsHtml = `<div class="stat-sheet">
+            <span>Max Hull</span><b>${Math.round(st.maxHp)}</b><span>Shield</span><b>${Math.round(st.maxShield)}</b>
+            <span>Armor</span><b>${Math.round(st.armor)}</b><span>Top Speed</span><b>${Math.round(st.topSpeed * 3)} km/h</b>
+            <span>Weapon Dmg</span><b>${Math.round(st.dmg * 100)}%</b><span>Turret DPS</span><b>${formatNum(mainDps)}</b>
+            <span>Crit</span><b>${Math.round(st.critChance * 100)}% ×${st.critDmg.toFixed(1)}</b><span>Fire Rate</span><b>${Math.round(st.fireRate * 100)}%</b>
+            <span>Ram Damage</span><b>${Math.round(st.ramDamage * 100)}%</b><span>Luck</span><b>${Math.round(st.luck)}</b>
+          </div>`;
     this.open('loadout', `
-      <div class="panel-screen interactive" style="width:min(1300px,96vw)">
-        <div class="ps-head"><div class="ps-title">LOADOUT</div><div class="row" style="align-items:center"><div class="crowns">${icon('coin', '', 24)} ${formatNum(run.gold)}</div><div class="crowns">${icon('key', '', 24)} ${run.keys}</div></div></div>
-        <div class="loadout">
-          <div class="col">
-            <div class="lbl">EQUIPPED — ${run.chassis.name}</div>
-            <div class="slot-list">${slots}</div>
-            <div class="lbl" style="margin-top:6px">STATS</div>
-            <div class="stat-sheet">
-              <span>Max Hull</span><b>${Math.round(st.maxHp)}</b><span>Shield</span><b>${Math.round(st.maxShield)}</b>
-              <span>Armor</span><b>${Math.round(st.armor)}</b><span>Top Speed</span><b>${Math.round(st.topSpeed * 3)} km/h</b>
-              <span>Weapon Damage</span><b>${Math.round(st.dmg * 100)}%</b><span>Turret DPS (burst)</span><b>${formatNum(mainDps)}</b>
-              <span>Crit</span><b>${Math.round(st.critChance * 100)}% ×${st.critDmg.toFixed(1)}</b><span>Fire Rate</span><b>${Math.round(st.fireRate * 100)}%</b>
-              <span>Ram Damage</span><b>${Math.round(st.ramDamage * 100)}%</b><span>Luck</span><b>${Math.round(st.luck)}</b>
-              <span>Gold Find</span><b>${Math.round(st.goldFind * 100)}%</b><span>Lifesteal</span><b>${(st.lifesteal * 100).toFixed(1)}%</b>
-            </div>
-          </div>
-          <div class="col">${detail}
-            <div class="lbl" style="margin-top:14px">PERKS</div><div style="font-size:16px;color:#ddd">${perks}</div>
-          </div>
-          <div class="col">
-            <div class="lbl">BACKPACK (${run.backpack.length}/${run.backpackSize})</div>
-            <div class="bp-grid">${bp}</div>
-            <div class="lbl" style="margin-top:6px">RELICS</div>
-            <div class="relic-list">${relics}</div>
-            <div class="lbl" style="margin-top:6px">SYNERGIES</div>${synText}
-          </div>
-        </div>
-        <div style="margin-top:14px"><button class="btn" data-a="close"><span>BACK TO THE ROAD [TAB]</span></button></div>
-      </div>`);
+      <div class="lo-title interactive"><div class="ps-title">LOADOUT</div><div class="row" style="align-items:center;gap:10px"><div class="crowns">${artImg('pk_coin')} ${formatNum(run.gold)}</div><div class="crowns">${icon('key', '', 28, '#ffd23a')} ${run.keys}</div></div></div>
+      <div class="lo-left interactive"><div class="lo-bg jag-a"></div>
+        <div class="lbl">EQUIPPED — ${run.chassis.name}</div>
+        <div class="slot-list">${slots}</div>
+        <div class="lbl lo-stats">STATS</div>${statsHtml}
+      </div>
+      <div class="lo-right interactive"><div class="lo-bg jag-b"></div>
+        ${detail}
+        <div class="lbl" style="margin-top:12px">BACKPACK (${run.backpack.length}/${run.backpackSize})</div>
+        <div class="bp-grid">${bp}</div>
+        <div class="lbl lo-relics">RELICS</div><div class="relic-list">${relics}</div>
+        <div class="lbl" style="margin-top:8px">SYNERGIES</div>${synText}
+      </div>
+      <div class="perk-strip">PERKS: ${perks}</div>
+      <div class="lo-actions interactive"><button class="btn" data-a="close"><span>BACK TO THE ROAD [TAB]</span></button></div>`, false);
     this.bind('[data-slot]', (el) => {
       this.loadoutSel = { where: 'eq', slot: el.dataset.slot };
       this.showLoadout();
@@ -511,16 +510,16 @@ export class UI {
         if (e.kind === 'item' && e.item) inner = itemCardHTML(e.item, run.equipped[e.item.slot]);
         else if (e.kind === 'relic' && e.relic) {
           const r = RELIC_MAP.get(e.relic)!;
-          inner = `<div class="simple-card" style="--rc:${r.color}"><div class="in">${icon(r.icon, '', 30, r.color)} ${r.name}</div><div class="id">${r.desc}</div><div class="id" style="color:#888">RELIC · ${r.tags.join(' / ')}</div></div>`;
-        } else if (e.kind === 'repair') inner = `<div class="simple-card" style="--rc:#60ff8a"><div class="in">${icon('wrench', '', 30, '#60ff8a')} Full Repair</div><div class="id">Restore hull and shields completely.</div></div>`;
-        else if (e.kind === 'key') inner = `<div class="simple-card" style="--rc:#ffd23a"><div class="in">${icon('key', '', 30, '#ffd23a')} Dungeon Key</div><div class="id">Opens golden chests and vaults.</div></div>`;
-        else inner = `<div class="simple-card" style="--rc:#40b0ff"><div class="in">${icon('engine', '', 30, '#40b0ff')} Nitro Refill</div><div class="id">Fill the tank. Go fast.</div></div>`;
+          inner = `<div class="simple-card" style="--rc:${r.color}"><div class="sbg jag-a"></div><div class="in">${icon(r.icon, '', 30, r.color)} ${r.name}</div><div class="id">${r.desc}</div><div class="id" style="color:#888">RELIC · ${r.tags.join(' / ')}</div></div>`;
+        } else if (e.kind === 'repair') inner = `<div class="simple-card" style="--rc:#60ff8a"><div class="sbg jag-r1"></div><div class="in">${icon('wrench', '', 30, '#60ff8a')} Full Repair</div><div class="id">Restore hull and shields completely.</div></div>`;
+        else if (e.kind === 'key') inner = `<div class="simple-card" style="--rc:#ffd23a"><div class="sbg jag-gold"></div><div class="in">${icon('key', '', 30, '#ffd23a')} Dungeon Key</div><div class="id">Opens golden chests and vaults.</div></div>`;
+        else inner = `<div class="simple-card" style="--rc:#40b0ff"><div class="sbg jag-r2"></div><div class="in">${icon('engine', '', 30, '#40b0ff')} Nitro Refill</div><div class="id">Fill the tank. Go fast.</div></div>`;
         const afford = run.gold >= e.price;
-        return `<div class="shop-entry ${e.sold ? 'sold' : ''}">${inner}<div class="price"><div class="crowns" style="font-size:22px">${icon('coin', '', 20)} ${formatNum(e.price)}</div><button class="btn gold" data-buy="${i}" ${afford && !e.sold ? '' : 'disabled'}><span>${e.sold ? 'SOLD' : 'BUY'}</span></button></div></div>`;
+        return `<div class="shop-entry ${e.sold ? 'sold' : ''}">${inner}<div class="price"><div class="crowns" style="font-size:24px;padding:3px 22px 1px 14px">${artImg('pk_coin', 26)} ${formatNum(e.price)}</div><button class="btn gold" data-buy="${i}" ${afford && !e.sold ? '' : 'disabled'}><span>${e.sold ? 'SOLD' : 'BUY'}</span></button></div></div>`;
       }).join('');
       this.open('shop', `
         <div class="panel-screen interactive">
-          <div class="ps-head"><div class="row" style="align-items:center"><div style="width:90px">${portraitSVG('smug').replace('portrait-svg', 'portrait-svg" style="width:90px')}</div><div><div class="ps-title">GOBLIN MERCHANT</div><div class="ps-sub" style="margin-top:8px">"Shiny things for shiny coins. No refunds. No questions."</div></div></div><div class="crowns">${icon('coin', '', 26)} ${formatNum(run.gold)}</div></div>
+          <div class="ps-head"><div class="row" style="align-items:center">${portraitFrame('wink', 118)}<div><div class="ps-title">GOBLIN MERCHANT</div><div class="ps-sub" style="margin-top:8px">"Shiny things for shiny coins. No refunds. No questions."</div></div></div><div class="crowns">${artImg('pk_coin')} ${formatNum(run.gold)}</div></div>
           <div class="shop-grid">${cards}</div>
           <div class="row" style="justify-content:space-between;margin-top:16px"><button class="btn" data-a="close"><span>LEAVE [ESC]</span></button><button class="btn" data-a="reroll" ${run.gold >= this.rerollCost(run) ? '' : 'disabled'}><span>REROLL ITEMS (${this.rerollCost(run)} GOLD)</span></button></div>
         </div>`);
@@ -645,9 +644,9 @@ export class UI {
   openRelicChoice(ids: string[], cb: (id: string | null) => void) {
     const cards = ids.map((id, i) => {
       const r = RELIC_MAP.get(id)!;
-      return `<div class="relic-card interactive" data-i="${i}" style="--rc:${r.color}">
+      return `<div class="relic-card interactive" data-i="${i}" style="--rc:${r.color}"><div class="rbg jag-${'abc'[i % 3]}"></div>
         <span class="keycap" style="align-self:flex-start">${i + 1}</span>
-        <div class="relic-big" style="background:#111">${icon(r.icon, '', 64, r.color)}</div>
+        <div class="relic-big">${icon(r.icon, '', 60, r.color)}</div>
         <div class="rn" style="color:${r.color}">${r.name.toUpperCase()}</div>
         <div class="rd">${r.desc}</div>
         <div class="rt">${r.tags.map((t) => `<span>${t}</span>`).join('')}${r.cursed ? '<span style="border-color:#f33;color:#f55">cursed</span>' : ''}</div>
@@ -675,7 +674,7 @@ export class UI {
     this.hud.show(false);
     const c = run.counters;
     const t = `${Math.floor(c.time / 60)}:${String(Math.floor(c.time % 60)).padStart(2, '0')}`;
-    const stat = (k: string, v: string) => `<div class="rstat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+    const stat = (k: string, v: string) => `<div class="rstat"><div class="rsb jag-${'abcde'[k.length % 5]}"></div><div class="v">${v}</div><div class="k">${k}</div></div>`;
     this.open('results', `
       <div class="panel-screen interactive results ${win ? 'win' : ''}" style="width:min(1000px,94vw)">
         <div class="rbig">${win ? 'RICH & ALIVE!' : 'WRECKED!'}</div>
@@ -686,7 +685,7 @@ export class UI {
           ${stat('RAMS', String(c.rams))}${stat('DRIFT TIME', Math.round(c.driftTime) + 's')}${stat('ROOMS CLEARED', String(c.roomsCleared))}${stat('LEVEL', String(run.level))}
         </div>
         ${c.bestItem ? `<div style="display:flex;justify-content:center;margin:10px 0"><div><div class="lbl">BEST FIND</div>${itemCardHTML(c.bestItem)}</div></div>` : ''}
-        <div class="crowns" style="font-size:36px;margin:8px 0">${icon('crown', '', 34)} +${crowns} CROWNS</div>
+        <div class="crowns" style="font-size:40px;margin:8px 0">${artImg('icon_crown', 38)} +${crowns} CROWNS</div>
         <div class="row" style="justify-content:center;margin-top:16px">
           <button class="btn gold" data-a="again"><span>DRIVE AGAIN</span></button>
           <button class="btn" data-a="garage"><span>GARAGE</span></button>

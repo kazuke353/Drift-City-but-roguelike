@@ -327,6 +327,15 @@ export class Game {
         this.lights.update(dt, w2.player.pos.x, w2.player.pos.z);
         r.followShadow(w2.player.pos.x, w2.player.pos.z);
         if (this.ui.modalOpen) this.fx.beams.begin(r.camera.position);
+        if (this.ui.screen === 'loadout') {
+          // showcase orbit around the player's car while the loadout is open
+          const pp = w2.player;
+          const a = this.time * 0.4 + 0.6;
+          r.camera.position.set(pp.pos.x + Math.sin(a) * 8.6, pp.pos.y + 3.1, pp.pos.z + Math.cos(a) * 8.6);
+          r.camera.lookAt(pp.pos.x, pp.pos.y + 0.9, pp.pos.z);
+          r.camera.fov = 46;
+          r.camera.updateProjectionMatrix();
+        }
         w2.render(this.time);
         this.fx.update(dt, r.camera.position);
         this.ui.hud.update(rawDt, w2);

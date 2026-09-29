@@ -1,6 +1,7 @@
 import { RARITY, SLOT_NAMES, SLOT_ICONS, WEAPON_LABEL, ELEMENT_NAMES, GADGET_INFO, weaponDps, type Item } from '../loot/Items';
 import { describeMod, modIsGood } from '../game/Stats';
 import { icon, ELEMENT_ICON } from './Icons';
+import { itemArt } from './ArtIcons';
 import { ELEMENT_HEX } from '../fx/FX';
 
 const fmt = (v: number, d = 0) => (d ? v.toFixed(d) : Math.round(v).toLocaleString('en-US'));
@@ -11,7 +12,7 @@ function row(ic: string, label: string, v: number, cmp: number | undefined, d = 
     const better = lowerBetter ? v < cmp : v > cmp;
     arrow = better ? `<span class="up">${icon('up', '', 14)}</span>` : `<span class="dn">${icon('down', '', 14)}</span>`;
   }
-  return `<div class="st">${icon(ic, '', 16)}<span>${label}</span><span class="v">${fmt(v, d)}${suffix} ${arrow}</span></div>`;
+  return `<div class="st">${icon(ic, '', 17)}<span>${label}</span><span class="v" style="${arrow && (lowerBetter ? v < (cmp ?? v) : v > (cmp ?? v)) ? 'color:#5dff8a' : ''}">${fmt(v, d)}${suffix} ${arrow}</span></div>`;
 }
 
 export function itemCardHTML(it: Item, cmp?: Item | null, extraTag = '') {
@@ -30,18 +31,24 @@ export function itemCardHTML(it: Item, cmp?: Item | null, extraTag = '') {
     body += row('skull', 'Est. DPS', weaponDps(it), c ? weaponDps(c) : undefined);
   } else if (it.gtype) {
     const g = GADGET_INFO[it.gtype];
-    body += `<div class="st">${icon('gear', '', 16)}<span>Cooldown</span><span class="v">${fmt(it.cooldown ?? g.cooldown, 1)}s</span></div>`;
-    body += `<div class="st" style="color:#ddd">${g.desc}</div>`;
+    body += `<div class="st">${icon('gear', '', 17)}<span>Cooldown</span><span class="v">${fmt(it.cooldown ?? g.cooldown, 1)}s</span></div>`;
+    body += `<div class="st" style="color:#d4d0c1;font-weight:600;font-size:16px">${g.desc}</div>`;
   }
-  const mods = it.mods.map((m) => `<div style="color:${modIsGood(m) ? '#9fe8ff' : '#ff8a7a'}">${describeMod(m)}</div>`).join('');
+  const mods = it.mods.map((m) => `<div style="color:${modIsGood(m) ? '#ffd86a' : '#ff8a7a'}">${describeMod(m)}</div>`).join('');
   const elem = it.element !== 'none' ? `<span class="elem" style="color:${ELEMENT_HEX[it.element]}">${icon(ELEMENT_ICON[it.element], '', 13)} ${ELEMENT_NAMES[it.element]}</span>` : '';
   const kind = it.wtype ? WEAPON_LABEL[it.wtype] : SLOT_NAMES[it.slot];
   return `
-  <div class="item-card bg-r${it.rarity}">
+  <div class="item-card bg-r${it.rarity} ${it.rarity >= 4 ? 'legend' : ''}">
+    <div class="icbg jag-r${it.rarity}"></div>
     ${extraTag ? `<div class="tag">${extraTag}</div>` : ''}
-    <div class="ir">${r.name} ${kind} · Lv ${it.level}</div>
-    <div class="in">${it.name}</div>
-    <div class="is">${it.maker ? it.maker + ' ' : ''}${elem}</div>
+    <div class="ictop">
+      <div class="icart">${itemArt(it, it.slot)}</div>
+      <div class="ictxt">
+        <div class="ir">${r.name} · ${kind} · Lv ${it.level}</div>
+        <div class="in">${it.name}</div>
+        <div class="is">${it.maker ? it.maker + ' ' : ''}${elem}</div>
+      </div>
+    </div>
     <div class="stats">${body}</div>
     ${mods ? `<div class="mods">${mods}</div>` : ''}
     ${it.specialText ? `<div class="special">${it.specialText}</div>` : ''}

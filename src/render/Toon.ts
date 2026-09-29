@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { injectLightMap } from './LightMap';
 
 /** Layer used for objects that should NOT get ink outlines (particles, beams, UI-ish meshes). */
 export const FX_LAYER = 1;
@@ -57,6 +58,8 @@ export function toon(color: THREE.ColorRepresentation, opts: ToonOpts = {}): THR
     m.emissive = new THREE.Color(opts.emissive);
     m.emissiveIntensity = opts.emissiveIntensity ?? 1;
   }
+  m.onBeforeCompile = (sh) => injectLightMap(sh);
+  m.customProgramCacheKey = () => 'toonLM';
   cache.set(key, m);
   return m;
 }
@@ -84,27 +87,59 @@ export function glow(color: THREE.ColorRepresentation, intensity = 2.5, opts: { 
  * Environment material with baked lighting: a per-vertex `baked` attribute (rgb light)
  * is added as emissive * albedo and quantized for a cel-shaded look.
  */
-export function bakedToon(map: THREE.Texture | null, color: THREE.ColorRepresentation = 0xffffff, extraEmissive?: { color: THREE.ColorRepresentation; intensity: number }) {
+export interface BakedOpts {
+  bump?: THREE.Texture | null;
+  bumpScale?: number;
+  /** world-space low-frequency mottling that breaks up texture tiling */
+  mottle?: number;
+  /** ramp stops for the baked light quantiser */
+  bands?: number;
+}
+
+export function bakedToon(map: THREE.Texture | null, color: THREE.ColorRepresentation = 0xffffff, extraEmissive?: { color: THREE.ColorRepresentation; intensity: number }, opts: BakedOpts = {}) {
   const m = new THREE.MeshToonMaterial({ color, map, gradientMap: toonRamp });
+  if (opts.bump) {
+    m.bumpMap = opts.bump;
+    m.bumpScale = opts.bumpScale ?? 1.5;
+  }
   if (extraEmissive) {
     m.emissive = new THREE.Color(extraEmissive.color);
     m.emissiveIntensity = extraEmissive.intensity;
   }
+  const mottle = (opts.mottle ?? 0).toFixed(3);
+  const bands = (opts.bands ?? 4).toFixed(1);
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 baked;\nvarying vec3 vBaked;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBaked = baked;');
+      .replace('#include <common>', '#include <common>\nattribute vec3 baked;\nvarying vec3 vBaked;\nvarying vec3 vWp;\nvarying float vUp;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBaked = baked;\nvWp = (modelMatrix * vec4(position, 1.0)).xyz;\nvUp = abs(normalize(mat3(modelMatrix) * normal).y);');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBaked;')
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vBaked;
+varying vec3 vWp;
+varying float vUp;
+float bh21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float bn2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(bh21(i), bh21(i + vec2(1.0, 0.0)), f.x), mix(bh21(i + vec2(0.0, 1.0)), bh21(i + vec2(1.0, 1.0)), f.x), f.y); }`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        ${opts.mottle ? `{
+          vec2 mp = vUp > 0.5 ? vWp.xz : vec2(vWp.x + vWp.z, vWp.y);
+          float mo = bn2(mp * 0.11) * 0.6 + bn2(mp * 0.37 + 7.0) * 0.4;
+          diffuseColor.rgb *= 1.0 - ${mottle} + ${mottle} * 2.0 * mo;
+        }` : ''}`,
+      )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
         float bl = max(max(vBaked.r, vBaked.g), vBaked.b);
-        float q = bl > 0.001 ? (floor(bl * 4.0 + 0.35) / 4.0) / bl : 0.0;
+        float q = bl > 0.001 ? (floor(bl * ${bands} + 0.35) / ${bands}) / bl : 0.0;
         totalEmissiveRadiance += diffuseColor.rgb * vBaked * mix(1.0, q, 0.65);`,
       );
   };
-  m.customProgramCacheKey = () => 'bakedToon';
+  m.customProgramCacheKey = () => `bakedToon|${opts.bump ? 'b' : ''}|${mottle}|${bands}`;
   return m;
 }
 
@@ -147,6 +182,7 @@ export function rimToon(color: THREE.ColorRepresentation, rim: THREE.ColorRepres
   const vec = `vec3(${rc.r.toFixed(4)}, ${rc.g.toFixed(4)}, ${rc.b.toFixed(4)})`;
   const lo = width.toFixed(3), hi = (width + 0.06).toFixed(3);
   m.onBeforeCompile = (sh) => {
+    injectLightMap(sh, 1.0);
     sh.fragmentShader = sh.fragmentShader.replace(
       '#include <emissivemap_fragment>',
       `#include <emissivemap_fragment>
@@ -154,7 +190,120 @@ export function rimToon(color: THREE.ColorRepresentation, rim: THREE.ColorRepres
       totalEmissiveRadiance += ${vec} * smoothstep(${lo}, ${hi}, rimF);`,
     );
   };
-  m.customProgramCacheKey = () => 'rim' + vec + lo;
+  m.customProgramCacheKey = () => 'rimLM' + vec + lo;
   cache.set(key, m);
   return m;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Glossy cel-shaded "car paint" / metal materials: triplanar livery map, banded environment
+// reflection, a hard specular blob, and a silhouette rim light.
+// ---------------------------------------------------------------------------------------------
+
+export interface PaintOpts {
+  /** livery map, projected triplanar in object space */
+  map?: THREE.Texture | null;
+  /** object-space units covered by one tile of the map */
+  tile?: number;
+  /** environment reflection strength (0..1) */
+  refl?: number;
+  /** specular blob threshold on N.H (higher = smaller blob), 0 disables */
+  spec?: number;
+  specStrength?: number;
+  rim?: THREE.ColorRepresentation;
+  rimStrength?: number;
+  emissive?: THREE.ColorRepresentation;
+  emissiveIntensity?: number;
+  side?: THREE.Side;
+  ramp?: 2 | 3;
+  /** horizon tint of the fake environment (torch glow) */
+  env?: THREE.ColorRepresentation;
+}
+
+const paintCache = new Map<string, THREE.MeshToonMaterial>();
+
+export function paintToon(color: THREE.ColorRepresentation, o: PaintOpts = {}): THREE.MeshToonMaterial {
+  const c = new THREE.Color(color);
+  const rim = new THREE.Color(o.rim ?? 0xffffff).multiplyScalar(o.rimStrength ?? 0);
+  const env = new THREE.Color(o.env ?? 0xff8a3a);
+  const key = `p|${c.getHexString()}|${o.map?.uuid ?? ''}|${o.tile ?? 3}|${o.refl ?? 0.5}|${o.spec ?? 0.985}|${o.specStrength ?? 0.8}|${rim.getHexString()}|${env.getHexString()}|${o.emissive !== undefined ? new THREE.Color(o.emissive).getHexString() : ''}|${o.emissiveIntensity ?? ''}|${o.side ?? ''}|${o.ramp ?? 3}`;
+  const hit = paintCache.get(key);
+  if (hit) return hit;
+  const m = new THREE.MeshToonMaterial({ color: c, map: o.map ?? null, gradientMap: o.ramp === 2 ? toonRamp2 : toonRamp, side: o.side ?? THREE.FrontSide });
+  if (o.emissive !== undefined) {
+    m.emissive = new THREE.Color(o.emissive);
+    m.emissiveIntensity = o.emissiveIntensity ?? 1;
+  }
+  const f = (v: number) => v.toFixed(4);
+  const refl = f(o.refl ?? 0.5);
+  const spec = o.spec ?? 0.985;
+  const specS = f(o.specStrength ?? 0.8);
+  const tile = f(1 / (o.tile ?? 3));
+  const rimV = `vec3(${f(rim.r)}, ${f(rim.g)}, ${f(rim.b)})`;
+  const envV = `vec3(${f(env.r)}, ${f(env.g)}, ${f(env.b)})`;
+  const hasMap = !!o.map;
+  m.onBeforeCompile = (sh) => {
+    injectLightMap(sh, 1.0);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vOPos;\nvarying vec3 vONrm;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvOPos = position;\nvONrm = normal;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vOPos;
+varying vec3 vONrm;
+vec3 paintEnv(vec3 r) {
+  float y = r.y;
+  vec3 sky = mix(vec3(0.16, 0.14, 0.26), vec3(0.06, 0.1, 0.28), smoothstep(0.0, 0.9, y));
+  vec3 col = y > 0.0 ? sky : vec3(0.03, 0.025, 0.03);
+  col += ${envV} * 1.6 * smoothstep(0.16, 0.0, abs(y - 0.06));
+  float az = atan(r.z, r.x);
+  col += vec3(0.55, 0.7, 1.0) * step(0.9, sin(az * 3.0 + y * 4.0)) * step(0.15, y) * 0.85;
+  col += vec3(1.0, 0.95, 0.85) * step(0.94, sin(az * 5.0 - 1.3)) * step(0.35, y) * 0.9;
+  return floor(col * 6.0) / 6.0;
+}`,
+      );
+    if (hasMap) {
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <map_fragment>',
+        `{
+  vec3 an = pow(abs(normalize(vONrm)), vec3(5.0));
+  an /= (an.x + an.y + an.z + 1e-4);
+  vec3 op = vOPos * ${tile} + 0.5;
+  vec4 tx = texture2D(map, op.zy);
+  vec4 ty = texture2D(map, op.xz);
+  vec4 tz = texture2D(map, op.xy);
+  diffuseColor *= tx * an.x + ty * an.y + tz * an.z;
+}`,
+      );
+    }
+    sh.fragmentShader = sh.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `{
+  vec3 Vv = normalize(vViewPosition);
+  vec3 Nv = normalize(normal);
+  float ndv = clamp(dot(Nv, Vv), 0.0, 1.0);
+  float lit = clamp(dot(reflectedLight.directDiffuse + reflectedLight.indirectDiffuse, vec3(0.3333)), 0.0, 1.0);
+  float litK = 0.35 + 0.65 * smoothstep(0.03, 0.4, lit);
+  vec3 Rw = inverseTransformDirection(reflect(-Vv, Nv), viewMatrix);
+  float fres = 0.22 + 0.78 * pow(1.0 - ndv, 3.0);
+  outgoingLight += min(paintEnv(Rw) * 0.75, vec3(0.8)) * fres * ${refl} * litK;
+  ${spec > 0 ? `
+  vec3 Lv = normalize((viewMatrix * vec4(normalize(vec3(0.45, 0.85, 0.35)), 0.0)).xyz);
+  float sp = dot(Nv, normalize(Lv + Vv));
+  outgoingLight += vec3(0.95, 0.92, 0.85) * step(${spec.toFixed(4)}, sp) * ${specS} * 0.7 * litK;` : ''}
+  outgoingLight += ${rimV} * smoothstep(0.6, 0.68, 1.0 - ndv) * litK;
+}
+#include <opaque_fragment>`,
+    );
+  };
+  m.customProgramCacheKey = () => key;
+  paintCache.set(key, m);
+  return m;
+}
+
+/** Dark, sharply reflective cel metal (armour plates, barrels, exhausts). */
+export function metalToon(color: THREE.ColorRepresentation, o: Omit<PaintOpts, 'refl' | 'spec'> & { refl?: number; spec?: number } = {}) {
+  return paintToon(color, { refl: 0.85, spec: 0.972, specStrength: 0.9, rim: 0x9ab4ff, rimStrength: 0.22, ...o });
 }

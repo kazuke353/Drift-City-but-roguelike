@@ -3,7 +3,8 @@ import type { World } from '../game/World';
 import type { Game } from '../game/Game';
 import type { Enemy } from '../entities/Enemy';
 import { icon, ELEMENT_ICON } from './Icons';
-import { portraitSVG, type Mood } from './Portrait';
+import { portraitHTML, SPEAKERS, type Mood } from './Portrait';
+import { artImg, artSrc, itemArt, itemArtName } from './ArtIcons';
 import { pickBark } from './Barks';
 import { itemCardHTML, slotIcon } from './ItemCard';
 import { RARITY, GADGET_INFO, type Item } from '../loot/Items';
@@ -58,50 +59,58 @@ export class HUD {
   private fpsT = 0;
   private fpsN = 0;
   private bossRef: Enemy | null = null;
+  private glyphImgs: Record<string, HTMLImageElement> = {};
 
   constructor(private game: Game, parent: HTMLElement) {
     const r = document.createElement('div');
     r.id = 'hud';
     r.className = 'hidden';
     r.innerHTML = `
-      <div class="top-left"><div class="objective"><div class="bang">!</div><div class="ot"></div><div class="olines"></div></div>
-      <div class="run-tag"></div></div>
-      <div class="minimap-wrap"><div class="minimap-head"><div class="fl"></div><div class="fn"></div></div><canvas width="236" height="190"></canvas></div>
-      <div class="mods-row"></div>
-      <div class="boss-bar hidden"><div class="bicon">${icon('boss', '', 48, '#fff')}</div><div class="bbody"><div class="bname"></div><div class="bsub"></div><div class="btrack"><div class="blag"></div><div class="bfill"></div><div class="bshield hidden"></div><div class="bphase" style="left:60%"></div><div class="bphase" style="left:30%"></div></div></div></div>
+      <div class="tl z">
+        <div class="run-banner"><div class="rb-bg jag-a"></div>${artImg('icon_crown', 0, 'rb-crown')}<div class="rb-txt"><div class="rb1">RUN <b class="rnum"></b></div><div class="rb2"></div></div></div>
+        <div class="objective"><div class="obg jag-b"></div><div class="ot"></div><div class="olines"></div></div>
+      </div>
+      <div class="minimap-wrap z"><div class="mmbg jag-c"></div>
+        <div class="mm-head"><span class="fl"></span><span class="fn"></span></div>
+        <div class="mm-body"><canvas width="214" height="172"></canvas>
+          <div class="mm-legend"><div><i class="tri"></i>You</div><div><i class="sq"></i>Room</div><div>${artImg('icon_treasure')}Treasure</div><div>${artImg('icon_enemy')}Enemy</div><div>${artImg('icon_shop')}Shop</div><div>${artImg('icon_rest')}Rest</div><div>${artImg('icon_boss')}Boss</div></div>
+        </div>
+      </div>
+      <div class="mods-row z"></div>
+      <div class="boss-bar hidden z"><div class="bicon">${artImg('icon_boss')}</div><div class="bbody"><div class="bname"></div><div class="bsub"></div><div class="btrack"><div class="blag"></div><div class="bfill"></div><div class="bshield hidden"></div><div class="bphase" style="left:60%"></div><div class="bphase" style="left:30%"></div></div></div></div>
       <div id="labels"></div>
       <div id="numbers"></div>
       <div id="crosshair"><svg class="ch" viewBox="0 0 36 36"><g stroke="#fff" stroke-width="3" stroke-linecap="square"><path d="M18 4v7M18 25v7M4 18h7M25 18h7"/></g><g stroke="#000" stroke-width="1"><path d="M18 4v7M18 25v7M4 18h7M25 18h7" fill="none"/></g><circle cx="18" cy="18" r="1.8" fill="#fff" stroke="#000"/></svg><svg class="hm" viewBox="0 0 48 48"><g stroke-width="4" stroke-linecap="square"><path d="M10 10l8 8M38 10l-8 8M10 38l8-8M38 38l-8-8"/></g></svg></div>
       <div class="hitdir"><i></i></div>
-      <div class="navigator off"><div class="pframe"></div><div class="bubble"><div class="who">SPROCKET</div><span class="bt"></span></div></div>
-      <div class="status">
-        <div class="car-badge">${icon('car', '', 64, '#000')}<span class="lvl"></span></div>
-        <div class="col" style="gap:4px">
+      <div class="navigator off z"><div class="pframe"></div><div class="bubble"><div class="bbg slab-dark-b"></div><div class="who">SPROCKET</div><span class="bt"></span></div></div>
+      <div class="status z">
+        <div class="car-badge">${artImg('hud_car')}<span class="lvl"></span></div>
+        <div class="col">
           <div class="synergy-tag hidden"></div>
-          <div class="relics"></div>
           <div class="bars">
-            <div class="bar hp"><div class="lag"></div><div class="fill"></div><span class="bi">${icon('heart', '', 20, '#fff')}</span><div class="txt"></div></div>
-            <div class="bar sh"><div class="lag"></div><div class="fill"></div><span class="bi">${icon('shield', '', 20, '#fff')}</span><div class="txt"></div></div>
-            <div class="xpbar"><div class="fill"></div></div>
+            <div class="bar hp"><div class="lag"></div><div class="fill"></div>${artImg('icon_heart', 0, 'bi')}<div class="txt"></div></div>
+            <div class="bar sh"><div class="lag"></div><div class="fill"></div>${artImg('icon_shieldstat', 0, 'bi')}<div class="txt"></div></div>
           </div>
+          <div class="xprow"><div class="xpbar"><div class="fill"></div></div><div class="relics"></div></div>
         </div>
       </div>
-      <div class="speedo">
+      <div class="speedo z">
         <div class="abilities">
-          <div class="ability gad"><span class="gi"></span><div class="cdv"></div><div class="cdt"></div><span class="k">Q</span><span class="chg"></span></div>
-          <div class="ability horn">${icon('horn', '', 34, '#fff')}<div class="cdv"></div><span class="k">H</span></div>
+          <div class="ability boost"><div class="frame"><img class="bg" src="${artSrc('ab_boost')}" alt=""/><div class="cdv"></div></div><div class="kc"><span class="keycap">SHIFT</span>Boost</div></div>
+          <div class="ability gad"><div class="frame"><img class="bg" src="${artSrc('ab_mine')}" alt=""/><div class="gi"></div><div class="cdv"></div><div class="cdt"></div><span class="chg"></span></div><div class="kc"><span class="keycap">Q</span><span class="gname">Gadget</span></div></div>
+          <div class="ability horn"><div class="frame"><img class="bg" src="${artSrc('ab_ram')}" alt=""/><div class="cdv"></div></div><div class="kc"><span class="keycap">H</span>Horn</div></div>
         </div>
-        <div class="speed-box"><svg viewBox="0 0 190 92"><path d="M10 86 L40 20 Q46 10 58 10 L186 10 L176 34 L66 34 Q58 34 55 42 L36 86 Z" fill="#0b0b0d" stroke="#f2efe6" stroke-width="3"/><path class="sarc" d="M16 84 L44 22 Q49 14 58 14 L182 14" fill="none" stroke="#e8242f" stroke-width="8" stroke-dasharray="300" stroke-dashoffset="300"/></svg><div class="speed-num">0</div><div class="speed-unit">KM/H</div></div>
-        <div class="nitro-col"><span class="lbl">NITRO [SHIFT]</span><div class="nitro"><div class="fill"></div></div><span class="lbl">DRIFT [SPACE]</span><div class="drift-meter"><i></i><i></i><i></i></div></div>
+        <div class="speed-box"><svg viewBox="0 0 210 100"><path d="M6 96 L44 26 Q52 12 68 12 L206 12 L192 46 L84 46 Q72 46 68 56 L44 96 Z" fill="#09090c" stroke="#f4f1e8" stroke-width="3" stroke-linejoin="miter"/><path class="sarc" d="M14 94 L50 30 Q56 19 70 19 L200 19" fill="none" stroke="#ff2a3c" stroke-width="9" stroke-dasharray="300" stroke-dashoffset="300"/></svg><div class="speed-num">0</div><div class="speed-unit">KM/H</div></div>
+        <div class="nitro-col"><span class="lbl">NITRO</span><div class="nitro"><div class="fill"></div></div><span class="lbl">DRIFT [SPACE]</span><div class="drift-meter"><i></i><i></i><i></i></div></div>
       </div>
-      <div class="weapons">
+      <div class="weapons z">
         <div class="perks hidden"><div class="ph"><div class="pt">CHOOSE A PERK</div><div class="prr"></div></div><div class="pcards"></div></div>
-        <div class="currency"><div class="cur">${icon('coin', '', 24, '#ffd23a')}<span class="gold">0</span></div><div class="cur">${icon('key', '', 24, '#ffd23a')}<span class="keys">0</span></div><div class="cur ks hidden">${icon('portal', '', 24, '#40b0ff')}<span class="kst">0</span></div></div>
-        <div class="wpanel side"><span class="mb">RMB</span><div class="wico"></div><div><div class="wname"></div><div class="wsub"></div></div><div class="ammo"></div><div class="reload"></div><div class="rl"></div></div>
-        <div class="wpanel main"><span class="mb">LMB</span><div class="wico"></div><div><div class="wname"></div><div class="wsub"></div></div><div class="ammo"></div><div class="reload"></div><div class="rl"></div></div>
+        <div class="currency"><div class="cur">${artImg('pk_coin')}<span class="gold">0</span></div><div class="cur">${icon('key', '', 28, '#ffd23a')}<span class="keys">0</span></div><div class="cur ks hidden">${icon('portal', '', 26, '#40b0ff')}<span class="kst">0</span></div></div>
+        <div class="wpanel side"><div class="wbg jag-d"></div><span class="mb keycap">RMB</span><div class="wico"></div><div class="winfo"><div class="wname"></div><div class="wsub"></div></div><div class="ammo"></div><div class="reload"></div><div class="rl"></div></div>
+        <div class="wpanel main"><div class="wbg jag-a"></div><span class="mb keycap">LMB</span><div class="wico"></div><div class="winfo"><div class="wname"></div><div class="wsub"></div></div><div class="ammo"></div><div class="reload"></div><div class="rl"></div></div>
       </div>
       <div class="prompt hidden"><div class="pr"></div><div class="ps"></div></div>
-      <div class="loot-card hidden"></div>
+      <div class="loot-card hidden z"></div>
       <div class="toast hidden"><div class="tt"></div><div class="ts"></div></div>
       <div class="combo hidden"></div>
       <div class="downed hidden"><div class="dt">LAST GEAR!</div><div class="ds">GET A KILL TO RESTART YOUR ENGINE</div><div class="dbar"><i></i></div></div>
@@ -113,16 +122,16 @@ export class HUD {
     this.root = r;
     const q = (s: string) => $(r, s);
     this.els = {
-      ot: q('.objective .ot'), olines: q('.objective .olines'), runTag: q('.run-tag'),
-      fl: q('.minimap-head .fl'), fn: q('.minimap-head .fn'), mods: q('.mods-row'),
+      ot: q('.objective .ot'), olines: q('.objective .olines'), rnum: q('.run-banner .rnum'), rb2: q('.run-banner .rb2'),
+      fl: q('.mm-head .fl'), fn: q('.mm-head .fn'), mods: q('.mods-row'),
       boss: q('.boss-bar'), bname: q('.bname'), bsub: q('.bsub'), bfill: q('.bfill'), blag: q('.blag'), bshield: q('.bshield'),
       labels: q('#labels'), numbers: q('#numbers'), cross: q('#crosshair'), hm: q('#crosshair .hm'), hitdir: q('.hitdir'), hitdirI: q('.hitdir i'),
-      nav: q('.navigator'), pframe: q('.pframe'), bt: q('.bubble .bt'),
+      nav: q('.navigator'), pframe: q('.pframe'), bt: q('.bubble .bt'), who: q('.bubble .who'),
       lvl: q('.car-badge .lvl'), relics: q('.relics'), syn: q('.synergy-tag'),
       hpFill: q('.bar.hp .fill'), hpLag: q('.bar.hp .lag'), hpTxt: q('.bar.hp .txt'),
       shFill: q('.bar.sh .fill'), shLag: q('.bar.sh .lag'), shTxt: q('.bar.sh .txt'), xp: q('.xpbar .fill'),
-      gad: q('.ability.gad'), gadIcon: q('.ability.gad .gi'), gadCd: q('.ability.gad .cdv'), gadT: q('.ability.gad .cdt'), gadChg: q('.ability.gad .chg'),
-      horn: q('.ability.horn'), hornCd: q('.ability.horn .cdv'),
+      gad: q('.ability.gad'), gadImg: q('.ability.gad img.bg'), gadName: q('.ability.gad .gname'), gadCd: q('.ability.gad .cdv'), gadT: q('.ability.gad .cdt'), gadChg: q('.ability.gad .chg'),
+      horn: q('.ability.horn'), hornCd: q('.ability.horn .cdv'), boost: q('.ability.boost'), boostCd: q('.ability.boost .cdv'),
       sarc: q('.sarc'), speed: q('.speed-num'), nitro: q('.nitro .fill'), drift: q('.drift-meter'),
       perks: q('.perks'), pcards: q('.pcards'), prr: q('.prr'),
       gold: q('.gold'), keys: q('.keys'), ks: q('.cur.ks'), kst: q('.kst'),
@@ -132,6 +141,14 @@ export class HUD {
       downed: q('.downed'), dbar: q('.downed .dbar i'), click: q('.click-hint'), bigmap: q('.bigmap'), fps: q('.fps'),
     };
     this.mapCtx = (q('.minimap-wrap canvas') as HTMLCanvasElement).getContext('2d')!;
+    for (const n of ['icon_treasure', 'icon_enemy', 'icon_shop', 'icon_rest', 'icon_boss', 'icon_skull', 'icon_crown']) {
+      const im = new Image();
+      im.src = artSrc(n);
+      this.glyphImgs[n] = im;
+    }
+    const applyScale = () => document.documentElement.style.setProperty('--s', String(clamp(window.innerHeight / 720, 0.85, 1.8)));
+    applyScale();
+    window.addEventListener('resize', applyScale);
     this.els.click.addEventListener('click', () => this.game.lockPointer());
     for (let i = 0; i < 26; i++) {
       const b = document.createElement('div');
@@ -146,7 +163,7 @@ export class HUD {
       this.els.labels.appendChild(g);
       this.glabels.push(g);
     }
-    this.els.pframe.innerHTML = portraitSVG('happy');
+    this.els.pframe.innerHTML = portraitHTML('happy');
   }
 
   show(v: boolean) {
@@ -258,7 +275,8 @@ export class HUD {
   say(text: string, mood: Mood, prio = 0) {
     this.barkT = Math.min(5, 1.6 + text.length * 0.045);
     this.barkPrio = prio;
-    this.els.pframe.innerHTML = portraitSVG(mood);
+    this.els.pframe.innerHTML = portraitHTML(mood);
+    this.els.who.textContent = SPEAKERS[mood].who;
     this.els.bt.textContent = text;
     this.els.nav.classList.remove('off');
   }
@@ -294,10 +312,10 @@ export class HUD {
   private renderPerks(run: import('../game/Run').Run) {
     const ch = this.perkChoices!;
     this.els.pcards.innerHTML = ch.map((p, i) => `
-      <div class="pcard interactive" data-i="${i}" style="--pc:${p.color}">
+      <div class="pcard interactive" data-i="${i}" style="--pc:${p.color}"><div class="pbg jag-b"></div>
         <span class="pk keycap">${i + 1}</span><span class="plv">${run.perks[p.id] ? 'LV ' + (run.perks[p.id] + 1) : 'NEW'}</span>
-        ${icon(p.icon, '', 40, p.color)}
-        <div class="pn">${p.name.toUpperCase()}</div><div class="pd">${p.desc}</div>
+        ${icon(p.icon, '', 44, p.color)}
+        <div class="pn">${p.name}</div><div class="pd">${p.desc}</div>
       </div>`).join('');
     this.els.prr.innerHTML = `${run.pendingPerks > 1 ? `×${run.pendingPerks} &nbsp;` : ''}${run.rerolls > 0 ? `<span class="keycap">T</span>REROLL (${run.rerolls})` : ''}`;
     this.els.pcards.querySelectorAll('.pcard').forEach((c) => c.addEventListener('mousedown', (ev) => {
@@ -355,9 +373,11 @@ export class HUD {
 
     // objective
     const obj = w.objective;
+    const dia = '<svg viewBox="0 0 20 20"><path d="M10 2l8 8-8 8-8-8z" fill="none" stroke="#f4f1e8" stroke-width="2.4" stroke-linejoin="miter"/></svg>';
     this.setText(this.els.ot, obj.title);
-    this.setHTML(this.els.olines, obj.lines.map((l) => `<div class="ol ${l.done ? 'done' : ''} ${l.optional ? 'opt' : ''}"><span>${l.text}</span>${l.count ? `<b>${l.count}</b>` : ''}</div>`).join(''));
-    this.setText(this.els.runTag, `RUN #${run.runNumber} · ${run.biome.name.toUpperCase()}`);
+    this.setHTML(this.els.olines, obj.lines.map((l) => `<div class="ol ${l.done ? 'done' : ''} ${l.optional ? 'opt' : ''}"><span class="di">${l.optional ? artImg('icon_skull', 20) : l.done ? icon('star', '', 18, '#ffcb2f') : dia}</span><span>${l.text}</span>${l.count ? `<b>${l.count}</b>` : ''}</div>`).join(''));
+    this.setText(this.els.rnum, `#${run.runNumber}`);
+    this.setText(this.els.rb2, run.biome.name);
     this.setText(this.els.fl, run.floorLabel);
     this.setText(this.els.fn, run.floorName);
     this.setHTML(this.els.mods, run.floorMods.map((m) => `<div class="mod-chip" style="border-color:${m.color}">${icon(m.icon, '', 16, m.color)}<span>${m.name}</span></div>`).join(''));
@@ -409,16 +429,20 @@ export class HUD {
     const g = p.gadget;
     if (g) {
       const gi = g.item.gtype ?? 'mines';
-      const ic = gi === 'mines' ? 'skull' : gi === 'hop' ? 'up' : gi === 'pulse' ? 'bolt' : gi === 'turret' ? 'cannon' : gi === 'bubble' ? 'shield' : 'portal';
-      this.setHTML(this.els.gadIcon, icon(ic, '', 34, RARITY[g.item.rarity].color));
+      const frameArt = gi === 'mines' ? 'ab_mine' : gi === 'turret' ? 'ab_turret' : gi === 'hop' ? 'ab_boost' : 'ab_ram';
+      const src = artSrc(frameArt);
+      if (this.els.gadImg.getAttribute('src') !== src) (this.els.gadImg as HTMLImageElement).src = src;
+      this.setText(this.els.gadName, { mines: 'Mines', hop: 'Hop', pulse: 'Pulse', turret: 'Turret', bubble: 'Ward', gravity: 'Well' }[gi] ?? 'Gadget');
       const frac = g.charges >= g.maxCharges ? 0 : clamp(g.cd / g.cooldown, 0, 1);
-      this.els.gadCd.style.height = `${(g.charges > 0 ? 0 : frac) * 100}%`;
+      this.els.gadCd.style.height = `${(g.charges > 0 ? 0 : frac) * 84}%`;
       this.setText(this.els.gadT, g.charges > 0 ? '' : g.cd.toFixed(1));
       this.setText(this.els.gadChg, g.maxCharges > 1 ? `${g.charges}` : '');
       this.els.gad.classList.toggle('ready', g.charges > 0);
       this.els.gad.title = `${g.item.name}: ${GADGET_INFO[gi].desc}`;
     }
-    this.els.hornCd.style.height = `${clamp(p.hornCd / 4, 0, 1) * 100}%`;
+    this.els.boostCd.style.height = `${(1 - clamp(run.nitro / st.boostMax, 0, 1)) * 84}%`;
+    this.els.boost.classList.toggle('ready', run.nitro / st.boostMax > 0.3);
+    this.els.hornCd.style.height = `${clamp(p.hornCd / 4, 0, 1) * 84}%`;
 
     // weapons
     this.weaponPanel(this.els.wMain, p.weapons[0]);
@@ -525,15 +549,16 @@ export class HUD {
     const key = String(it.uid);
     if (this.lastText.get(el) !== key) {
       this.lastText.set(el, key);
-      $(el, '.wico').innerHTML = slotIcon(it, it.slot, 40);
+      $(el, '.wico').innerHTML = itemArt(it, it.slot);
       const n = $(el, '.wname');
       n.textContent = it.name;
       n.style.color = RARITY[it.rarity].color;
+      el.style.setProperty('--rc', RARITY[it.rarity].color);
       $(el, '.wsub').innerHTML = `${it.element !== 'none' ? icon(ELEMENT_ICON[it.element], '', 13, ELEMENT_HEX[it.element]) + ' ' : ''}Lv ${it.level} ${RARITY[it.rarity].name}`;
     }
     this.setHTML($(el, '.ammo'), `${Math.max(0, Math.floor(wr.mag))}<small> / ${wr.magMax}</small>`);
     const rl = wr.reloadT > 0;
-    ($(el, '.reload')).style.width = rl ? `${(1 - wr.reloadT / wr.reloadTime) * 100}%` : '0';
+    ($(el, '.reload')).style.setProperty('--rw', rl ? `${(1 - wr.reloadT / wr.reloadTime) * 100}%` : '0%');
     this.setText($(el, '.rl'), rl ? 'RELOADING' : wr.mag <= 0 ? 'EMPTY' : '');
   }
 
@@ -620,7 +645,7 @@ export class HUD {
       if (l.dataset.k !== key) {
         l.dataset.k = key;
         l.className = `glabel bg-r${g.item.rarity}`;
-        l.innerHTML = `${slotIcon(g.item, g.item.slot, 22)}<div>${g.item.name.toUpperCase()}<small>${RARITY[g.item.rarity].name} ${g.item.wtype ? 'Weapon' : 'Part'}</small></div>`;
+        l.innerHTML = `${itemArt(g.item, g.item.slot)}<div>${g.item.name}<small>${RARITY[g.item.rarity].name} ${g.item.wtype ? 'Weapon' : 'Part'}</small></div>`;
       }
       l.style.transform = `translate(${s[0] + 14}px, ${s[1]}px) translateY(-50%)`;
     }
@@ -723,8 +748,8 @@ export class HUD {
   private drawMinimap(w: World) {
     this.ensureMapBase(w);
     const g = this.mapCtx;
-    const cw = 236, ch = 190;
-    g.fillStyle = '#0b0b0d';
+    const cw = 214, ch = 172;
+    g.fillStyle = '#0b0b0f';
     g.fillRect(0, 0, cw, ch);
     const S = this.mapScale;
     const p = w.player;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from './Game';
 import { generateDungeon, TILE } from '../world/DungeonGen';
 import { buildLevel, type Level } from '../world/LevelBuilder';
+import { setLightMap } from '../render/LightMap';
 import { BIOMES } from '../world/Biomes';
 import { buildCar, setCarPlow, setCarWheels, type CarModel } from '../entities/CarModels';
 import { buildWeapon } from '../entities/WeaponModels';
@@ -19,11 +20,14 @@ export class MenuScene {
   t = 0;
   cx: number;
   cz: number;
+  private focus = { right: 3.2, up: 0.2 };
+  private focusT = { right: 3.2, up: 0.2 };
 
   constructor(private game: Game) {
     const biome = BIOMES[Math.floor(Math.random() * 3)];
     const d = generateDungeon({ seed: 777 + Math.floor(Math.random() * 9999), roomCount: 4, isBoss: false, act: biome.act, lavaAllowed: biome.lava, extraShops: 0, extraTreasure: 0, eliteRooms: 1 });
     this.level = buildLevel(d, biome, game.lights, 4242);
+    if (this.level.lightMap) setLightMap(this.level.lightMap.tex, this.level.lightMap.x0, this.level.lightMap.z0, this.level.lightMap.w, this.level.lightMap.h);
     this.group.add(this.level.group);
     const r = d.rooms[d.startRoom];
     this.cx = r.wx;
@@ -41,6 +45,30 @@ export class MenuScene {
     ring.layers.set(1);
     this.group.add(ring);
     void TILE;
+    if (new URLSearchParams(location.search).has('studio')) this.studio();
+  }
+
+  /** Neutral turntable set for model inspection (?studio). */
+  private studio() {
+    this.level.group.visible = false;
+    const r = this.game.renderer;
+    r.setFog(0x14151c, 60, 200);
+    r.hemi.intensity = 0.9;
+    r.hemi.color.set(0x9aa4c8);
+    r.hemi.groundColor.set(0x28242c);
+    r.keyLight.intensity = 2.0;
+    r.keyLight.color.set(0xfff0dd);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshToonMaterial({ color: 0x23242e }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(this.cx, 0, this.cz);
+    floor.receiveShadow = true;
+    this.group.add(floor);
+    for (const [x, z, c, i] of [[8, 6, 0xffb070, 60], [-8, -5, 0x6a90ff, 50], [0, 9, 0xffffff, 30]] as const) this.game.lights.addStatic(this.cx + x, 6, this.cz + z, c, i, 30, 0);
+  }
+
+  /** Where the car sits on screen: 'title' = right of the menu, 'select' = high, leaving room for the cards. */
+  setFocus(kind: 'title' | 'select') {
+    this.focusT = kind === 'select' ? { right: 0, up: 1.9 } : { right: 3.2, up: 0.2 };
   }
 
   setCar(id: string) {
@@ -67,9 +95,23 @@ export class MenuScene {
     const cam = this.game.renderer.camera;
     const close = new URLSearchParams(location.search).has('closeup');
     const a = close ? 2.2 + this.t * 0.4 : this.t * 0.18;
-    const r = close ? 8 : 13;
-    cam.position.set(this.cx + Math.sin(a) * r, 4.2 + Math.sin(this.t * 0.3) * 0.8, this.cz + Math.cos(a) * r);
-    cam.lookAt(this.cx + 3.5 * Math.cos(a), 1.4, this.cz - 3.5 * Math.sin(a));
+    const r = close ? 7.2 : 13;
+    const ov = (window as any).__cam as { a: number; r: number; h: number; ty: number; tx?: number; tz?: number } | undefined;
+    if (ov) {
+      cam.position.set(this.cx + Math.sin(ov.a) * ov.r, ov.h, this.cz + Math.cos(ov.a) * ov.r);
+      cam.lookAt(this.cx + (ov.tx ?? 0), ov.ty, this.cz + (ov.tz ?? 0));
+    } else if (close) {
+      cam.position.set(this.cx + Math.sin(a) * r, 2.5, this.cz + Math.cos(a) * r);
+      cam.lookAt(this.cx, 0.85, this.cz);
+    } else {
+      this.focus.right += (this.focusT.right - this.focus.right) * Math.min(1, dt * 3);
+      this.focus.up += (this.focusT.up - this.focus.up) * Math.min(1, dt * 3);
+      const px = this.cx + Math.sin(a) * r, pz = this.cz + Math.cos(a) * r;
+      cam.position.set(px, 3.6 + Math.sin(this.t * 0.3) * 0.5, pz);
+      const fx = this.cx - px, fz = this.cz - pz, fl = Math.hypot(fx, fz) || 1;
+      const rx = -fz / fl, rz = fx / fl;
+      cam.lookAt(this.cx - rx * this.focus.right, 1.1 - this.focus.up, this.cz - rz * this.focus.right);
+    }
     cam.fov = 58;
     cam.updateProjectionMatrix();
     if (this.car) {

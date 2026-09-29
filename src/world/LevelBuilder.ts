@@ -6,20 +6,14 @@ import { Grid } from './Grid';
 import { Batcher } from './Batcher';
 import { Rng } from '../core/Rng';
 import { bakedToon, glow, toon, FX_LAYER } from '../render/Toon';
-import { stoneWallTexture, cobbleTexture, bannerTexture, graffitiTexture, runeTexture } from '../render/Textures';
+import { bannerTexture, graffitiTexture, runeTexture } from '../render/Textures';
+import { art } from '../render/Art';
 import type { LightPool } from '../render/LightPool';
 import type { FX } from '../fx/FX';
 import { SHAPE_DOT, SHAPE_CORE } from '../fx/Particles';
-
-interface BakeLight {
-  x: number;
-  y: number;
-  z: number;
-  r: number;
-  g: number;
-  b: number;
-  range: number;
-}
+import { FlameField } from '../fx/Flames';
+import { LightBaker, buildLightMap, type BakeLight, type LightMapData } from './LightBake';
+import { setLightMap } from '../render/LightMap';
 
 export interface Gate {
   door: Door;
@@ -40,20 +34,18 @@ export interface Flame {
   phase: number;
 }
 
-const texCache = new Map<string, { wall: THREE.Texture; floor: THREE.Texture; pillar: THREE.Texture }>();
+interface LevelTex { wall: THREE.Texture; floor: THREE.Texture; pillar: THREE.Texture; wallBump: THREE.Texture; floorBump: THREE.Texture; pillarBump: THREE.Texture }
 
-function biomeTextures(b: Biome) {
-  let t = texCache.get(b.id);
-  if (!t) {
-    t = {
-      wall: stoneWallTexture(b.wall, 11),
-      floor: cobbleTexture(b.floor, 23),
-      pillar: stoneWallTexture({ ...b.wall, base: b.wall.light }, 31),
-    };
-    texCache.set(b.id, t);
-  }
-  return t;
+function biomeTextures(_b: Biome): LevelTex {
+  return { wall: art('tex_wall'), floor: art('tex_floor'), pillar: art('tex_wall'), wallBump: art('tex_wall_h'), floorBump: art('tex_floor_h'), pillarBump: art('tex_wall_h') };
 }
+
+/** Per-biome tint multiplied over the neutral slate stone textures. */
+const TINTS: Record<string, { floor: number; wall: number; pillar: number }> = {
+  crypt: { floor: 0xa0b2ee, wall: 0x94a8e4, pillar: 0xc0ccff },
+  vaults: { floor: 0xc4a0f4, wall: 0xb490ec, pillar: 0xdcc0ff },
+  ashen: { floor: 0xe0a48e, wall: 0xd08a76, pillar: 0xf2b8a0 },
+};
 
 const lavaVert = /* glsl */ `
 varying vec2 vW;
@@ -65,27 +57,16 @@ void main() {
 `;
 const lavaFrag = /* glsl */ `
 uniform float time;
-uniform vec3 hot;
-uniform vec3 cool;
+uniform sampler2D map;
 varying vec2 vW;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float noise(vec2 p) {
-  vec2 i = floor(p), f = fract(p);
-  f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-}
-float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
 void main() {
-  vec2 p = vW * 0.18;
-  vec2 q = vec2(fbm(p + time * 0.08), fbm(p - time * 0.06 + 3.7));
-  float n = fbm(p * 1.6 + q * 2.2 + time * 0.05);
-  float cells = smoothstep(0.42, 0.58, n);
-  float crack = 1.0 - smoothstep(0.0, 0.07, abs(n - 0.5));
-  vec3 c = mix(hot * 3.2, cool * 0.6, cells);
-  c += hot * crack * 2.5;
-  // posterize for a cel look
-  c = floor(c * 5.0) / 5.0;
-  gl_FragColor = vec4(c, 1.0);
+  vec2 uv = vW * 0.085;
+  vec3 a = texture2D(map, uv + vec2(time * 0.010, time * 0.006)).rgb;
+  vec3 b = texture2D(map, uv * 1.63 + vec2(0.37, 0.11) - vec2(time * 0.008, -time * 0.012)).rgb;
+  vec3 c = a * 0.62 + b * 0.5;
+  float heat = clamp(max(c.r - c.b, 0.0) * 2.2, 0.0, 1.0);
+  vec3 col = c * vec3(1.5, 0.95, 0.6) + vec3(1.6, 0.55, 0.1) * pow(heat, 2.4) * (1.1 + 0.25 * sin(time * 1.9 + vW.x * 0.11 + vW.y * 0.07));
+  gl_FragColor = vec4(col, 1.0);
 }
 `;
 
@@ -94,6 +75,8 @@ export class Level {
   gates: Gate[] = [];
   flames: Flame[] = [];
   lavaMat: THREE.ShaderMaterial | null = null;
+  flameField: FlameField | null = null;
+  lightMap: LightMapData | null = null;
   runeMats: THREE.MeshBasicMaterial[] = [];
   chandeliers: THREE.Object3D[] = [];
   bakeLights: BakeLight[] = [];
@@ -105,6 +88,7 @@ export class Level {
     this.time += dt;
     const t = this.time;
     if (this.lavaMat) this.lavaMat.uniforms.time.value = t;
+    this.flameField?.update(t);
     // flames: flickering glow billboards + embers, only near the camera
     for (const f of this.flames) {
       const dx = f.x - cam.x, dz = f.z - cam.z;
@@ -200,10 +184,7 @@ function makeKit(b: Biome): PropKit {
   bracket.rotation.x = -0.5;
   const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.25, 0.6, 8), iron);
   cup.position.set(0, 0.1, 1.0);
-  const fl = new THREE.Mesh(new THREE.ConeGeometry(0.34, 1.2, 7), flame);
-  fl.position.set(0, 0.95, 1.0);
-  fl.castShadow = false;
-  torch.add(bracket, cup, fl);
+  torch.add(bracket, cup);
 
   const brazier = new THREE.Group();
   const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 3.2, 8), stoneDark);
@@ -215,10 +196,7 @@ function makeKit(b: Biome): PropKit {
   rim.position.y = 4.15;
   const coals = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 0.3, 10), glow(0xff5010, 2.2));
   coals.position.y = 4.05;
-  const bfl = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.6, 8), flame);
-  bfl.position.y = 5.3;
-  bfl.castShadow = false;
-  brazier.add(ped, bowl, rim, coals, bfl);
+  brazier.add(ped, bowl, rim, coals);
 
   const statue = new THREE.Group();
   const base = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2, 4.2), stoneDark);
@@ -560,6 +538,8 @@ export function buildLevel(d: DungeonData, biome: Biome, lights: LightPool, seed
   // ------------------------------------------------ static geometry with baked light
   buildStaticGeometry(level, tex, biome);
   batch.build(level.group, 0);
+  level.flameField = new FlameField(level.flames);
+  level.group.add(level.flameField.mesh);
   return level;
 }
 
@@ -591,48 +571,15 @@ function makeGateMesh(kind: 'iron' | 'gold' | 'boss', width: number) {
 }
 
 /** Floors, walls, wall tops and skirting, with baked point lighting + AO. */
-function buildStaticGeometry(level: Level, tex: { wall: THREE.Texture; floor: THREE.Texture; pillar: THREE.Texture }, biome: Biome) {
+function buildStaticGeometry(level: Level, tex: LevelTex, biome: Biome) {
   const d = level.d;
   const grid = level.grid;
   const T = TILE;
   const H = WALL_H;
   const lights = level.bakeLights;
-  // bucket lights for fast lookup
-  const BS = 32;
-  const bw = Math.ceil((d.w * T) / BS) + 1, bh = Math.ceil((d.h * T) / BS) + 1;
-  const buckets: number[][] = Array.from({ length: bw * bh }, () => []);
-  lights.forEach((l, i) => {
-    const x0 = Math.max(0, Math.floor((l.x - l.range) / BS)), x1 = Math.min(bw - 1, Math.floor((l.x + l.range) / BS));
-    const z0 = Math.max(0, Math.floor((l.z - l.range) / BS)), z1 = Math.min(bh - 1, Math.floor((l.z + l.range) / BS));
-    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) buckets[z * bw + x].push(i);
-  });
-  const bakeAt = (px: number, py: number, pz: number, nx: number, ny: number, nz: number, out: number[]) => {
-    let r = 0, g = 0, b = 0;
-    const bi = Math.floor(pz / BS) * bw + Math.floor(px / BS);
-    const list = buckets[bi];
-    if (list) {
-      for (const li of list) {
-        const l = lights[li];
-        const lx = l.x - px, ly = l.y - py, lz = l.z - pz;
-        const dd = Math.sqrt(lx * lx + ly * ly + lz * lz);
-        if (dd > l.range || dd < 1e-4) continue;
-        const ndl = (lx * nx + ly * ny + lz * nz) / dd;
-        if (ndl <= 0) continue;
-        // occlusion along the ground plane
-        const sx = px + nx * 0.3, sz = pz + nz * 0.3;
-        const hd = Math.hypot(l.x - sx, l.z - sz);
-        if (hd > 0.5 && grid.raycast(sx, sz, l.x - sx, l.z - sz, hd, true) < hd - 0.6) continue;
-        const k = 1 - dd / l.range;
-        const a = k * k * (0.35 + 0.65 * ndl);
-        r += l.r * a;
-        g += l.g * a;
-        b += l.b * a;
-      }
-    }
-    out[0] = r;
-    out[1] = g;
-    out[2] = b;
-  };
+  const baker = new LightBaker(lights, grid, d.w * T, d.h * T);
+  level.lightMap = buildLightMap(baker, d.w * T, d.h * T, 2);
+  const bakeAt = (px: number, py: number, pz: number, nx: number, ny: number, nz: number, out: number[]) => baker.at(px, py, pz, nx, ny, nz, out);
   const walk = (tx: number, ty: number) => {
     if (tx < 0 || ty < 0 || tx >= d.w || ty >= d.h) return false;
     const t = d.tiles[ty * d.w + tx];
@@ -701,7 +648,7 @@ function buildStaticGeometry(level: Level, tex: { wall: THREE.Texture; floor: TH
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setAttribute('baked', new THREE.Float32BufferAttribute(bk, 3));
-    const mat = bakedToon(tex.floor, 0xffffff);
+    const mat = bakedToon(tex.floor, (TINTS[biome.id] ?? TINTS.crypt).floor, undefined, { bump: tex.floorBump, bumpScale: 2.6, mottle: 0.2 });
     mat.vertexColors = true;
     const mesh = new THREE.Mesh(g, mat);
     mesh.receiveShadow = true;
@@ -713,7 +660,7 @@ function buildStaticGeometry(level: Level, tex: { wall: THREE.Texture; floor: TH
       const lm = new THREE.ShaderMaterial({
         vertexShader: lavaVert,
         fragmentShader: lavaFrag,
-        uniforms: { time: { value: 0 }, hot: { value: new THREE.Color(1.0, 0.45, 0.08) }, cool: { value: new THREE.Color(0.35, 0.06, 0.02) } },
+        uniforms: { time: { value: 0 }, map: { value: art('tex_lava') } },
       });
       level.lavaMat = lm;
       const lmesh = new THREE.Mesh(lg, lm);
@@ -750,17 +697,17 @@ function buildStaticGeometry(level: Level, tex: { wall: THREE.Texture; floor: TH
           else if (dir === 1) { ax = x0; az = z1; bx = x0; bz = z0; nx = 1; nz = 0; }
           else if (dir === 2) { ax = x1; az = z1; bx = x0; bz = z1; nx = 0; nz = -1; }
           else { ax = x0; az = z0; bx = x1; bz = z0; nx = 0; nz = 1; }
-          const ua = (dir <= 1 ? az : ax) / 12, ub = (dir <= 1 ? bz : bx) / 12;
+          const ua = (dir <= 1 ? az : ax) / 15, ub = (dir <= 1 ? bz : bx) / 15;
           for (let li = 0; li < levels.length - 1; li++) {
             const y0 = levels[li], y1 = levels[li + 1];
             const a0 = aoAt(y0), a1 = aoAt(y1);
             // two triangles: (a,y0) (b,y0) (b,y1) / (a,y0) (b,y1) (a,y1)
-            pushV(P, U, C, Bk, N, ax, y0, az, ua, y0 / 12, nx, nz, a0);
-            pushV(P, U, C, Bk, N, bx, y0, bz, ub, y0 / 12, nx, nz, a0);
-            pushV(P, U, C, Bk, N, bx, y1, bz, ub, y1 / 12, nx, nz, a1);
-            pushV(P, U, C, Bk, N, ax, y0, az, ua, y0 / 12, nx, nz, a0);
-            pushV(P, U, C, Bk, N, bx, y1, bz, ub, y1 / 12, nx, nz, a1);
-            pushV(P, U, C, Bk, N, ax, y1, az, ua, y1 / 12, nx, nz, a1);
+            pushV(P, U, C, Bk, N, ax, y0, az, ua, y0 / 15, nx, nz, a0);
+            pushV(P, U, C, Bk, N, bx, y0, bz, ub, y0 / 15, nx, nz, a0);
+            pushV(P, U, C, Bk, N, bx, y1, bz, ub, y1 / 15, nx, nz, a1);
+            pushV(P, U, C, Bk, N, ax, y0, az, ua, y0 / 15, nx, nz, a0);
+            pushV(P, U, C, Bk, N, bx, y1, bz, ub, y1 / 15, nx, nz, a1);
+            pushV(P, U, C, Bk, N, ax, y1, az, ua, y1 / 15, nx, nz, a1);
           }
           if (!isPil) {
             // skirting ledge: front face + top face
@@ -768,14 +715,14 @@ function buildStaticGeometry(level: Level, tex: { wall: THREE.Texture; floor: TH
             const fax = ax + nx * inset, faz = az + nz * inset, fbx = bx + nx * inset, fbz = bz + nz * inset;
             pushV(P, U, C, Bk, N, fax, 0, faz, ua, 0, nx, nz, 0.55);
             pushV(P, U, C, Bk, N, fbx, 0, fbz, ub, 0, nx, nz, 0.55);
-            pushV(P, U, C, Bk, N, fbx, sh, fbz, ub, sh / 12, nx, nz, 0.8);
+            pushV(P, U, C, Bk, N, fbx, sh, fbz, ub, sh / 15, nx, nz, 0.8);
             pushV(P, U, C, Bk, N, fax, 0, faz, ua, 0, nx, nz, 0.55);
-            pushV(P, U, C, Bk, N, fbx, sh, fbz, ub, sh / 12, nx, nz, 0.8);
-            pushV(P, U, C, Bk, N, fax, sh, faz, ua, sh / 12, nx, nz, 0.8);
+            pushV(P, U, C, Bk, N, fbx, sh, fbz, ub, sh / 15, nx, nz, 0.8);
+            pushV(P, U, C, Bk, N, fax, sh, faz, ua, sh / 15, nx, nz, 0.8);
             // top of ledge (normal up)
             const tpush = (x: number, z: number) => {
               P.push(x, sh, z);
-              U.push(x / 12, z / 12);
+              U.push(x / 15, z / 15);
               C.push(0.9, 0.9, 0.9);
               N.push(0, 1, 0);
               bakeAt(x, sh + 0.3, z, 0, 1, 0, tmp);
@@ -797,23 +744,23 @@ function buildStaticGeometry(level: Level, tex: { wall: THREE.Texture; floor: TH
       const x0 = tx * T, z0 = ty * T, x1 = x0 + T, z1 = z0 + T;
       capPos.push(x0, H, z0, x0, H, z1, x1, H, z1, x0, H, z0, x1, H, z1, x1, H, z0);
     }
-    const mk = (P: number[], U: number[], C: number[], B: number[], N: number[], map: THREE.Texture) => {
+    const mk = (P: number[], U: number[], C: number[], B: number[], N: number[], map: THREE.Texture, bump: THREE.Texture, tint: number) => {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
       g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
       g.setAttribute('baked', new THREE.Float32BufferAttribute(B, 3));
-      const m = bakedToon(map, 0xffffff);
+      const m = bakedToon(map, tint, undefined, { bump, bumpScale: 2.8, mottle: 0.18 });
       m.vertexColors = true;
       const mesh = new THREE.Mesh(g, m);
       mesh.receiveShadow = true;
       mesh.castShadow = false;
       return mesh;
     };
-    level.group.add(mk(wallPos, wallUv, wallCol, wallBk, wallNor, tex.wall));
+    level.group.add(mk(wallPos, wallUv, wallCol, wallBk, wallNor, tex.wall, tex.wallBump, (TINTS[biome.id] ?? TINTS.crypt).wall));
     if (pilPos.length) {
-      const pm = mk(pilPos, pilUv, pilCol, pilBk, pilNor, tex.pillar);
+      const pm = mk(pilPos, pilUv, pilCol, pilBk, pilNor, tex.pillar, tex.pillarBump, (TINTS[biome.id] ?? TINTS.crypt).pillar);
       pm.castShadow = true;
       level.group.add(pm);
     }

@@ -4,6 +4,7 @@ import type { Run, FloorMod } from './Run';
 import { FLOOR_MODS } from './Run';
 import { generateDungeon, TILE, Tile, type DungeonData, type Room } from '../world/DungeonGen';
 import { buildLevel, type Level, type Gate } from '../world/LevelBuilder';
+import { setLightMap } from '../render/LightMap';
 import type { Grid } from '../world/Grid';
 import { PlayerCar, type DriveInput } from '../entities/PlayerCar';
 import { Enemy, type EliteMod } from '../entities/Enemy';
@@ -162,6 +163,7 @@ export class World {
       isBoss, act: run.act, lavaAllowed: biome.lava, extraTreasure, extraShops, eliteRooms,
     });
     this.level = buildLevel(this.d, biome, game.lights, run.seed + run.floor);
+    if (this.level.lightMap) setLightMap(this.level.lightMap.tex, this.level.lightMap.x0, this.level.lightMap.z0, this.level.lightMap.w, this.level.lightMap.h);
     this.grid = this.level.grid;
     this.group.add(this.level.group);
     game.renderer.scene.add(this.group);

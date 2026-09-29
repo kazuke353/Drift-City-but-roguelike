@@ -82,8 +82,11 @@ void main() {
   col = vec3(1.0) - exp(-col * exposure);
   float lum = dot(col, vec3(0.299, 0.587, 0.114));
   col = mix(vec3(lum), col, saturation * (1.0 - desat));
-  // gentle S-curve for punchy comic contrast
-  col = col * col * (3.0 - 2.0 * col) * 0.35 + col * 0.65;
+  // split-toning: cool blue-teal shadows, warm gold highlights (Borderlands-ish dungeon grade)
+  col *= mix(vec3(0.84, 0.94, 1.14), vec3(1.12, 1.0, 0.84), smoothstep(0.12, 0.68, lum));
+  // punchy S-curve
+  col = clamp(col, 0.0, 1.0);
+  col = col * col * (3.0 - 2.0 * col) * 0.5 + col * 0.5;
 
   // ---- comic hatching in deep shadows
   if (hatch > 0.5) {
@@ -185,8 +188,8 @@ export class GameRenderer {
         damage: { value: 0 },
         lowHp: { value: 0 },
         chroma: { value: 0 },
-        exposure: { value: 1.25 },
-        saturation: { value: 1.18 },
+        exposure: { value: 1.5 },
+        saturation: { value: 1.22 },
         desat: { value: 0 },
         flash: { value: new THREE.Vector4(1, 1, 1, 0) },
         hatch: { value: 1 },
