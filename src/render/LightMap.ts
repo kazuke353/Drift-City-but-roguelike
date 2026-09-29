@@ -49,6 +49,7 @@ export function injectLightMap(sh: { uniforms: Record<string, { value: unknown }
       if (uLMOn > 0.5) {
         vec2 lmUv = (vLmPos.xz - uLMRect.xy) * uLMRect.zw;
         vec3 lmC = texture2D(tLightMap, lmUv).rgb * ${LM_SCALE.toFixed(1)};
+        lmC = lmC / (1.0 + lmC * 0.55);
         totalEmissiveRadiance += diffuseColor.rgb * lmC * ${strength.toFixed(3)};
       }`,
     );

@@ -90,12 +90,12 @@ export function humanSkull(s: number) {
 }
 
 const M = {
-  bone: () => rimToon(0xffffff, 0xffe8c0, { map: boneTexture() }),
-  boneD: () => rimToon(0xb8a57c, 0xffd8a0),
-  rust: () => rimToon(0x6a5a4e, 0xffc090),
-  steel: () => rimToon(0x8a93a6, 0xc0d8ff),
-  red: () => rimToon(0x8e1420, 0xff8080),
-  leather: () => rimToon(0x5a3a22, 0xffb080),
+  bone: () => rimToon(0xffffff, 0xffe0b0, { map: boneTexture('#c9bb98', '#7d6f52', 'boneGrime'), detail: { kind: 'hide', scale: 2.2, strength: 0.6 } }),
+  boneD: () => rimToon(0xa89670, 0xffd8a0, { detail: { kind: 'hide', scale: 2.2, strength: 0.6 } }),
+  rust: () => rimToon(0x6a5a4e, 0xffc090, { detail: { kind: 'plate', scale: 0.9, strength: 1.0 } }),
+  steel: () => rimToon(0x6e7688, 0xc0d8ff, { detail: { kind: 'plate', scale: 0.9, strength: 0.9 } }),
+  red: () => rimToon(0x8e1420, 0xff8080, { detail: { kind: 'hide', scale: 1.6, strength: 0.7 } }),
+  leather: () => rimToon(0x5a3a22, 0xffb080, { detail: { kind: 'hide', scale: 2.0, strength: 0.9 } }),
   eye: () => glow(0xff2a1a, 4),
 };
 
@@ -144,6 +144,21 @@ function skeletonModelRaw(kind: 'sword' | 'bow' | 'knight'): EnemyVisual {
     mesh(cached('hand', () => new THREE.BoxGeometry(0.14, 0.2, 0.12)), D, el, 0, -0.68, 0);
     arms.push(a);
     elbows.push(el);
+  }
+  if (kind !== 'knight') {
+    // scavenged kit: rusted pauldron, harness straps, tattered loincloth
+    const rustM = rimToon(0x6a3a26, 0xffb080, { detail: { kind: 'plate', scale: 1.1, strength: 1.1 } });
+    const clothM = rimToon(0x3a2418, 0xffa060, { side: THREE.DoubleSide, detail: { kind: 'cloth', scale: 2.4, strength: 1.0 } });
+    const pd = mesh(cached('sPaul', () => new THREE.SphereGeometry(0.26, 10, 7, 0, Math.PI * 2, 0, Math.PI / 2)), rustM, torso, 0.58, 1.14, 0);
+    pd.scale.set(1.15, 0.85, 1.1);
+    for (let i = 0; i < 3; i++) mesh(cached('sPaulSp', () => new THREE.ConeGeometry(0.04, 0.16, 5)), M.steel(), torso, 0.58 + (i - 1) * 0.1, 1.3 - Math.abs(i - 1) * 0.02, (i - 1) * 0.1, 0, 0, -0.2);
+    for (const s of [-1, 1]) mesh(cached('sStrap', () => taperTube([V3(s * 0.4, 1.02, 0.2), V3(0, 0.72, 0.3), V3(-s * 0.36, 0.42, 0.24)], 0.035, 0.035, 10, 4)), M.leather(), torso);
+    mesh(cached('sBelt', () => new THREE.TorusGeometry(0.28, 0.045, 5, 14)), M.leather(), torso, 0, 0.16, 0.02, Math.PI / 2, 0, 0);
+    mesh(cached('sBuckle', () => new THREE.BoxGeometry(0.1, 0.08, 0.04)), rimToon(0xc89a3a, 0xfff0b0), torso, 0, 0.16, 0.3);
+    for (let i = 0; i < 3; i++) {
+      const strip = mesh(cached('sTatter', () => new THREE.PlaneGeometry(0.13, 0.5)), clothM, hips, (i - 1) * 0.15, -0.34, 0.22 - Math.abs(i - 1) * 0.02, 0.06 * (i - 1), 0, 0);
+      strip.position.y = -0.34 - (i === 1 ? 0.06 : 0);
+    }
   }
   // sculpted skull with a separate jaw
   const head = pv(0, 1.2, 0.02, torso);
@@ -213,8 +228,8 @@ function skeletonModelRaw(kind: 'sword' | 'bow' | 'knight'): EnemyVisual {
 // ------------------------------------------------------------------ hellhound
 function houndModelRaw(): EnemyVisual {
   const root = new THREE.Group();
-  const skin = rimToon(0x5a1414, 0xff6040, { emissive: 0x1a0000, emissiveIntensity: 1 });
-  const dark = rimToon(0x241012, 0xff5030);
+  const skin = rimToon(0x3a1a1c, 0xff6040, { emissive: 0x100000, emissiveIntensity: 1, detail: { kind: 'rock', scale: 1.3, strength: 1.1, glow: 0xff4a10, glowIntensity: 1.7 } });
+  const dark = rimToon(0x1c0e10, 0xff5030, { detail: { kind: 'fur', scale: 2.4, strength: 0.9 } });
   const crack = glow(0xff4a10, 1.8);
   const hornM = rimToon(0x2a2020, 0xffb080);
   const fang = rimToon(0xf4f0e0, 0xffffff);
@@ -274,8 +289,8 @@ function houndModelRaw(): EnemyVisual {
 // ------------------------------------------------------------------ goblin
 function goblinModelRaw(bomb: boolean): EnemyVisual {
   const root = new THREE.Group();
-  const skin = rimToon(0x4f9a2c, 0xb0ff70, { rimStrength: 0.6 });
-  const cloth = rimToon(0x6a3a1a, 0xffb070);
+  const skin = rimToon(0x4f9a2c, 0xb0ff70, { rimStrength: 0.6, detail: { kind: 'hide', scale: 2.4, strength: 0.9 } });
+  const cloth = rimToon(0x6a3a1a, 0xffb070, { detail: { kind: 'cloth', scale: 2.6, strength: 0.9 } });
   const hips = pv(0, 0.9, 0, root);
   const legs: THREE.Group[] = [];
   for (const s of [-1, 1]) {
@@ -322,11 +337,11 @@ function goblinModelRaw(bomb: boolean): EnemyVisual {
 // ------------------------------------------------------------------ brute
 function bruteModelRaw(): EnemyVisual {
   const root = new THREE.Group();
-  const skin = rimToon(0x7a2424, 0xff7050, { emissive: 0x200404, emissiveIntensity: 1 });
-  const dark = rimToon(0x2e1010, 0xff6040);
+  const skin = rimToon(0x5a2620, 0xff7050, { emissive: 0x160202, emissiveIntensity: 1, detail: { kind: 'rock', scale: 0.85, strength: 1.15, glow: 0xff4a10, glowIntensity: 2.0 } });
+  const dark = rimToon(0x261010, 0xff6040, { detail: { kind: 'rock', scale: 1.1, strength: 1.0 } });
   const crack = glow(0xff4a10, 2.4);
-  const stone = rimToon(0x74747e, 0xd0d0ff);
-  const hornM = rimToon(0x2a2222, 0xffb090);
+  const stone = rimToon(0x686872, 0xd0d0ff, { detail: { kind: 'rock', scale: 0.7, strength: 1.2, glow: 0xff5a20, glowIntensity: 1.2 } });
+  const hornM = rimToon(0x2a2222, 0xffb090, { detail: { kind: 'rock', scale: 1.5, strength: 0.9 } });
   const hips = pv(0, 1.9, 0, root);
   const legs: THREE.Group[] = [];
   for (const s of [-1, 1]) {
@@ -370,8 +385,8 @@ function bruteModelRaw(): EnemyVisual {
 // ------------------------------------------------------------------ necromancer
 function necroModelRaw(): EnemyVisual {
   const root = new THREE.Group();
-  const robe = rimToon(0x3a1e5a, 0xd080ff);
-  const trim = rimToon(0xc89a3a, 0xfff0b0);
+  const robe = rimToon(0x321a52, 0xd080ff, { detail: { kind: 'cloth', scale: 2.2, strength: 1.0 } });
+  const trim = rimToon(0xc89a3a, 0xfff0b0, { detail: { kind: 'plate', scale: 1.4, strength: 0.7 } });
   const B = M.bone();
   const float = pv(0, 0.6, 0, root);
   mesh(cached('nRobe', () => lathe([[1.05, 0], [0.95, 0.4], [0.72, 1.2], [0.55, 1.9], [0.48, 2.4], [0.3, 2.6], [0, 2.62]], 16)), robe, float);
@@ -411,8 +426,8 @@ function buggyModelRaw(big: boolean): EnemyVisual {
   const root = new THREE.Group();
   const s = big ? 1.35 : 1;
   const body = pv(0, 0, 0, root);
-  const rust = big ? rimToon(0x3a3a44, 0xc0c0ff) : rimToon(0xffffff, 0xffc080, { map: woodTexture(6, '#8a4a22') });
-  const metal = rimToon(0x4a4a52, 0xd0d0ff);
+  const rust = big ? rimToon(0x3a3a44, 0xc0c0ff, { detail: { kind: 'plate', scale: 0.8, strength: 1.1 } }) : rimToon(0xffffff, 0xffc080, { map: woodTexture(6, '#8a4a22'), detail: { kind: 'hide', scale: 1.2, strength: 0.6 } });
+  const metal = rimToon(0x4a4a52, 0xd0d0ff, { detail: { kind: 'plate', scale: 0.9, strength: 1.0 } });
   const dark = rimToon(0x1a1a1e, 0x9090c0);
   const prof = new THREE.Shape([new THREE.Vector2(-1.6, 0.55), new THREE.Vector2(1.4, 0.55), new THREE.Vector2(1.85, 0.95), new THREE.Vector2(1.2, 1.3), new THREE.Vector2(-1.3, 1.35), new THREE.Vector2(-1.75, 1.0)]);
   const pg = cached(`bugBody${big}`, () => {
@@ -475,7 +490,7 @@ function buggyModelRaw(big: boolean): EnemyVisual {
 // ------------------------------------------------------------------ wraith
 function wraithModelRaw(): EnemyVisual {
   const root = new THREE.Group();
-  const cloth = rimToon(0x283a52, 0x60ffd8, { emissive: 0x0a2430, emissiveIntensity: 1, side: THREE.DoubleSide });
+  const cloth = rimToon(0x283a52, 0x60ffd8, { emissive: 0x0a2430, emissiveIntensity: 1, side: THREE.DoubleSide, detail: { kind: 'cloth', scale: 1.6, strength: 0.9 } });
   const float = pv(0, 1.4, 0, root);
   mesh(cached('wCloak', () => lathe([[0.3, 2.2], [0.6, 1.9], [0.9, 1.2], [1.1, 0.2], [1.2, -0.8], [1.3, -1.2]], 16)), cloth, float);
   for (let i = 0; i < 12; i++) {
@@ -505,8 +520,8 @@ function wraithModelRaw(): EnemyVisual {
 // ------------------------------------------------------------------ magma imp
 function impModelRaw(): EnemyVisual {
   const root = new THREE.Group();
-  const skin = rimToon(0xd0481a, 0xffd080, { emissive: 0x401000, emissiveIntensity: 1 });
-  const dark = rimToon(0x2a0a06, 0xff8040);
+  const skin = rimToon(0xb03c18, 0xffd080, { emissive: 0x300a00, emissiveIntensity: 1, detail: { kind: 'scale', scale: 2.6, strength: 0.9 } });
+  const dark = rimToon(0x2a0a06, 0xff8040, { detail: { kind: 'rock', scale: 2, strength: 0.9 } });
   const hips = pv(0, 1.0, 0, root);
   const legs: THREE.Group[] = [];
   for (const s of [-1, 1]) {
@@ -602,7 +617,7 @@ function mimicModelRaw(): EnemyVisual {
 // ------------------------------------------------------------------ crystal sentry
 function sentryModelRaw(): EnemyVisual {
   const root = new THREE.Group();
-  const stone = rimToon(0x4a4058, 0xc0a0ff);
+  const stone = rimToon(0x4a4058, 0xc0a0ff, { detail: { kind: 'rock', scale: 1.0, strength: 1.2, glow: 0xb44cff, glowIntensity: 1.6 } });
   const runeGlow = glow(0xb44cff, 2.6);
   mesh(cached('sBase', () => lathe([[1.9, 0], [1.9, 0.3], [1.5, 0.5], [1.2, 1.2], [1.45, 1.45], [1.3, 1.6], [0, 1.6]], 8)), stone, root);
   mesh(cached('sRune', () => new THREE.CylinderGeometry(1.36, 1.28, 0.16, 8, 1, true)), runeGlow, root, 0, 0.9, 0);

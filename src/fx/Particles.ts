@@ -220,6 +220,12 @@ export class Puffs {
     const mat: THREE.Material = emissive
       ? new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false })
       : toon(0xffffff).clone();
+    if (!emissive) {
+      // smoke stays neutral grey-warm regardless of the dungeon's coloured ambient
+      const tm = mat as THREE.MeshToonMaterial;
+      tm.emissive = new THREE.Color(0x5a5650);
+      tm.emissiveIntensity = 1;
+    }
     this.mesh = new THREE.InstancedMesh(geo, mat, cap);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.colorArr = new Float32Array(cap * 3);

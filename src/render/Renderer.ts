@@ -14,6 +14,7 @@ uniform vec2 resolution;
 uniform float cameraNear;
 uniform float cameraFar;
 uniform float outlineOn;
+uniform float aoOn;
 uniform float thickness;
 uniform float time;
 uniform float speedLines;
@@ -76,6 +77,20 @@ void main() {
     float edge = max(depthEdge, normalEdge * (dRaw < 0.9999 ? 1.0 : 0.0));
     edge *= 1.0 - smoothstep(90.0, 180.0, d0);
     col = mix(col, col * 0.06 + inkColor, edge * 0.92);
+
+    // ---- cheap screen-space ambient occlusion from the depth buffer (grounds props, cars and walls)
+    if (aoOn > 0.5 && dRaw < 0.9999) {
+      float occ = 0.0;
+      float rad = clamp(3.4 / max(d0, 3.0), 0.12, 1.0) * 26.0;
+      for (int i = 0; i < 8; i++) {
+        float a = float(i) * 0.7853982 + hash2(uv * resolution) * 0.5;
+        vec2 o = vec2(cos(a), sin(a)) * (rad * (0.45 + 0.55 * float(i % 2))) / resolution;
+        float dn = -viewZ(texture2D(tDepth, uv + o).x);
+        float diff = d0 - dn;
+        occ += smoothstep(0.35, 1.6, diff) * (1.0 - smoothstep(2.5, 9.0, diff));
+      }
+      col *= 1.0 - clamp(occ * 0.16, 0.0, 0.5);
+    }
   }
 
   // ---- tone mapping (saturation friendly exponential)
@@ -182,6 +197,7 @@ export class GameRenderer {
         cameraNear: { value: this.camera.near },
         cameraFar: { value: this.camera.far },
         outlineOn: { value: 1 },
+        aoOn: { value: 1 },
         thickness: { value: 1 },
         time: { value: 0 },
         speedLines: { value: 0 },
@@ -333,6 +349,7 @@ export class GameRenderer {
     u.tNormal.value = this.normalRT.texture;
     u.tDepth.value = this.normalRT.depthTexture;
     u.outlineOn.value = this.outline ? 1 : 0;
+    u.aoOn.value = this.quality === 'high' ? 1 : 0;
     if (this.useFxaa) {
       r.setRenderTarget(this.postRT);
       this.compositeQuad.render(r);

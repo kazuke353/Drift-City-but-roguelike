@@ -8,10 +8,10 @@ import { clamp, damp, dampAngle, wrapAngle } from '../core/MathUtil';
 /** Borderlands-2 / GTA style orbit chase camera. Mouse orbits; the car can steer toward the view. */
 export class CameraRig {
   yaw = 0;
-  pitch = 0.22;
-  dist = 11;
+  pitch = 0.2;
+  dist = 9.4;
   focus = new THREE.Vector3();
-  private curDist = 11;
+  private curDist = 9.4;
   private idleT = 0;
   private shakeT = 0;
   fovKick = 0;
@@ -63,7 +63,7 @@ export class CameraRig {
     this.focus.z = damp(this.focus.z, fz, 18, dt);
 
     const speedK = clamp(car.speed / 45, 0, 1.3);
-    const wantDist = this.dist + speedK * 2.2 + (car.boosting ? 1.2 : 0);
+    const wantDist = this.dist + speedK * 2.6 + (car.boosting ? 1.4 : 0);
     const yaw = this.yaw + (this.lookBack ? Math.PI : 0);
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const dirX = -Math.sin(yaw) * cp, dirZ = -Math.cos(yaw) * cp;
@@ -72,6 +72,19 @@ export class CameraRig {
     const hit = grid.raycast(this.focus.x, this.focus.z, dirX, dirZ, hLen + 0.8, true);
     let d = wantDist;
     if (hit < hLen + 0.8) d = Math.max(3.2, (hit - 0.8) / Math.max(0.2, cp));
+    // tall obstacles (statues, columns) also push the camera in
+    for (const o of grid.obstacles) {
+      if (o.h < 8) continue;
+      const ox = o.x - this.focus.x, oz = o.z - this.focus.z;
+      const t = ox * dirX + oz * dirZ;
+      if (t < 0 || t > hLen + 2) continue;
+      const perp = Math.abs(ox * dirZ - oz * dirX);
+      const rr = o.r + 0.9;
+      if (perp < rr) {
+        const tt = t - Math.sqrt(rr * rr - perp * perp);
+        if (tt > 0) d = Math.min(d, Math.max(6.2, tt / Math.max(0.2, cp)));
+      }
+    }
     this.curDist = d < this.curDist ? damp(this.curDist, d, 25, dt) : damp(this.curDist, d, 3, dt);
     const cam = this.camera;
     let px = this.focus.x + dirX * this.curDist;

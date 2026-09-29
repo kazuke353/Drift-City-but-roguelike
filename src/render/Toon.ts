@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { injectLightMap } from './LightMap';
+import { detailTexture, type DetailKind } from './DetailTex';
 
 /** Layer used for objects that should NOT get ink outlines (particles, beams, UI-ish meshes). */
 export const FX_LAYER = 1;
@@ -94,6 +95,8 @@ export interface BakedOpts {
   mottle?: number;
   /** ramp stops for the baked light quantiser */
   bands?: number;
+  /** wet-floor glancing sheen strength (reflects the baked light pools) */
+  sheen?: number;
 }
 
 export function bakedToon(map: THREE.Texture | null, color: THREE.ColorRepresentation = 0xffffff, extraEmissive?: { color: THREE.ColorRepresentation; intensity: number }, opts: BakedOpts = {}) {
@@ -108,6 +111,7 @@ export function bakedToon(map: THREE.Texture | null, color: THREE.ColorRepresent
   }
   const mottle = (opts.mottle ?? 0).toFixed(3);
   const bands = (opts.bands ?? 4).toFixed(1);
+  const sheen = (opts.sheen ?? 0).toFixed(3);
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec3 baked;\nvarying vec3 vBaked;\nvarying vec3 vWp;\nvarying float vUp;')
@@ -136,10 +140,16 @@ float bn2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f)
         `#include <emissivemap_fragment>
         float bl = max(max(vBaked.r, vBaked.g), vBaked.b);
         float q = bl > 0.001 ? (floor(bl * ${bands} + 0.35) / ${bands}) / bl : 0.0;
-        totalEmissiveRadiance += diffuseColor.rgb * vBaked * mix(1.0, q, 0.65);`,
+        totalEmissiveRadiance += diffuseColor.rgb * vBaked * mix(1.0, q, 0.65);
+        ${opts.sheen ? `{
+          float sv = 1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+          float wet = pow(sv, 3.0) * ${sheen};
+          float pat = 0.35 + 0.65 * bn2(vWp.xz * 0.23 + 3.1);
+          totalEmissiveRadiance += (vBaked * 1.0 + vec3(0.02, 0.025, 0.04)) * wet * pat * 0.9;
+        }` : ''}`,
       );
   };
-  m.customProgramCacheKey = () => `bakedToon|${opts.bump ? 'b' : ''}|${mottle}|${bands}`;
+  m.customProgramCacheKey = () => `bakedToon|${opts.bump ? 'b' : ''}|${mottle}|${bands}|${sheen}`;
   return m;
 }
 
@@ -160,10 +170,23 @@ export function enableShadows(obj: THREE.Object3D, cast = true, receive = true) 
  * Toon material with a hard cel "rim light" on silhouettes — makes characters pop
  * off dark dungeon backgrounds (Borderlands-style inked highlight).
  */
-export function rimToon(color: THREE.ColorRepresentation, rim: THREE.ColorRepresentation, opts: ToonOpts & { rimStrength?: number; rimWidth?: number } = {}): THREE.MeshToonMaterial {
+export interface DetailOpts {
+  kind: DetailKind;
+  /** object-space tiles per unit */
+  scale?: number;
+  /** contrast of the grit (0..1.5) */
+  strength?: number;
+  /** emissive colour of the crack/vein mask (needs a kind that produces one, e.g. rock) */
+  glow?: THREE.ColorRepresentation;
+  glowIntensity?: number;
+}
+
+export function rimToon(color: THREE.ColorRepresentation, rim: THREE.ColorRepresentation, opts: ToonOpts & { rimStrength?: number; rimWidth?: number; detail?: DetailOpts } = {}): THREE.MeshToonMaterial {
   const rc = new THREE.Color(rim).multiplyScalar(0.42 * (opts.rimStrength ?? 1));
   const width = opts.rimWidth ?? 0.66;
-  const key = `r|${new THREE.Color(color).getHexString()}|${rc.getHexString()}|${width}|${opts.emissive !== undefined ? new THREE.Color(opts.emissive).getHexString() : ''}|${opts.emissiveIntensity ?? ''}|${opts.map?.uuid ?? ''}|${opts.side ?? ''}|${opts.transparent ?? ''}|${opts.vertexColors ?? ''}`;
+  const dt = opts.detail ? detailTexture(opts.detail.kind) : null;
+  const dkey = opts.detail ? `${opts.detail.kind}|${opts.detail.scale ?? 1}|${opts.detail.strength ?? 1}|${opts.detail.glow !== undefined ? new THREE.Color(opts.detail.glow).getHexString() : ''}|${opts.detail.glowIntensity ?? 1}` : '';
+  const key = `r|${dkey}|${new THREE.Color(color).getHexString()}|${rc.getHexString()}|${width}|${opts.emissive !== undefined ? new THREE.Color(opts.emissive).getHexString() : ''}|${opts.emissiveIntensity ?? ''}|${opts.map?.uuid ?? ''}|${opts.side ?? ''}|${opts.transparent ?? ''}|${opts.vertexColors ?? ''}`;
   const hit = cache.get(key);
   if (hit) return hit as THREE.MeshToonMaterial;
   const m = new THREE.MeshToonMaterial({
@@ -181,16 +204,41 @@ export function rimToon(color: THREE.ColorRepresentation, rim: THREE.ColorRepres
   }
   const vec = `vec3(${rc.r.toFixed(4)}, ${rc.g.toFixed(4)}, ${rc.b.toFixed(4)})`;
   const lo = width.toFixed(3), hi = (width + 0.06).toFixed(3);
+  const dScale = (opts.detail?.scale ?? 1).toFixed(3);
+  const dStr = (opts.detail?.strength ?? 1).toFixed(3);
+  const gcol = opts.detail?.glow !== undefined ? new THREE.Color(opts.detail.glow) : null;
+  const gI = (opts.detail?.glowIntensity ?? 1).toFixed(3);
   m.onBeforeCompile = (sh) => {
-    injectLightMap(sh, 1.0);
+    injectLightMap(sh, 0.55);
+    if (dt) {
+      sh.uniforms.tDetail = { value: dt.color };
+      sh.uniforms.tDetailMask = { value: dt.mask ?? dt.color };
+      sh.uniforms.uDetailTime = { value: 0 };
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vDP;\nvarying vec3 vDN;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDP = position;\nvDN = objectNormal;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vDP;\nvarying vec3 vDN;\nuniform sampler2D tDetail;\nuniform sampler2D tDetailMask;')
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          vec3 dAn = pow(abs(normalize(vDN)), vec3(4.0));
+          dAn /= (dAn.x + dAn.y + dAn.z + 1e-4);
+          vec2 dUx = vDP.zy * ${dScale}, dUy = vDP.xz * ${dScale}, dUz = vDP.xy * ${dScale};
+          float dV = texture2D(tDetail, dUx).r * dAn.x + texture2D(tDetail, dUy).r * dAn.y + texture2D(tDetail, dUz).r * dAn.z;
+          diffuseColor.rgb *= mix(1.0, dV * 2.0, ${dStr});
+          float dM = ${gcol ? 'texture2D(tDetailMask, dUx).r * dAn.x + texture2D(tDetailMask, dUy).r * dAn.y + texture2D(tDetailMask, dUz).r * dAn.z' : '0.0'};`,
+        );
+    }
     sh.fragmentShader = sh.fragmentShader.replace(
       '#include <emissivemap_fragment>',
       `#include <emissivemap_fragment>
       float rimF = 1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
-      totalEmissiveRadiance += ${vec} * smoothstep(${lo}, ${hi}, rimF);`,
+      totalEmissiveRadiance += ${vec} * smoothstep(${lo}, ${hi}, rimF);
+      ${dt && gcol ? `totalEmissiveRadiance += vec3(${gcol.r.toFixed(3)}, ${gcol.g.toFixed(3)}, ${gcol.b.toFixed(3)}) * ${gI} * smoothstep(0.55, 0.92, dM);` : ''}`,
     );
   };
-  m.customProgramCacheKey = () => 'rimLM' + vec + lo;
+  m.customProgramCacheKey = () => 'rimLM' + vec + lo + dkey + (gcol ? 'g' : '');
   cache.set(key, m);
   return m;
 }
@@ -306,4 +354,56 @@ vec3 paintEnv(vec3 r) {
 /** Dark, sharply reflective cel metal (armour plates, barrels, exhausts). */
 export function metalToon(color: THREE.ColorRepresentation, o: Omit<PaintOpts, 'refl' | 'spec'> & { refl?: number; spec?: number } = {}) {
   return paintToon(color, { refl: 0.85, spec: 0.972, specStrength: 0.9, rim: 0x9ab4ff, rimStrength: 0.22, ...o });
+}
+
+// ---------------------------------------------------------------------------------------------
+// World-space triplanar stone: props (pilasters, statues, ribs, arches) share the exact brick/slab
+// texture of the walls so the dungeon reads as one continuous structure.
+// ---------------------------------------------------------------------------------------------
+const stoneCache = new Map<string, THREE.MeshToonMaterial>();
+
+export function stoneToon(tex: THREE.Texture, tint: THREE.ColorRepresentation, o: { scale?: number; emissive?: THREE.ColorRepresentation; emissiveIntensity?: number; bump?: THREE.Texture | null } = {}): THREE.MeshToonMaterial {
+  const c = new THREE.Color(tint);
+  const key = `s|${tex.uuid}|${c.getHexString()}|${o.scale ?? 15}|${o.emissive !== undefined ? new THREE.Color(o.emissive).getHexString() : ''}|${o.emissiveIntensity ?? ''}`;
+  const hit = stoneCache.get(key);
+  if (hit) return hit;
+  const m = new THREE.MeshToonMaterial({ color: c, map: tex, gradientMap: toonRamp });
+  if (o.emissive !== undefined) {
+    m.emissive = new THREE.Color(o.emissive);
+    m.emissiveIntensity = o.emissiveIntensity ?? 1;
+  }
+  const inv = (1 / (o.scale ?? 15)).toFixed(5);
+  m.onBeforeCompile = (sh) => {
+    injectLightMap(sh, 1.0);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSP;\nvarying vec3 vSN;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        {
+          vec4 sp4 = vec4(transformed, 1.0);
+          vec3 sn3 = objectNormal;
+          #ifdef USE_INSTANCING
+          sp4 = instanceMatrix * sp4;
+          sn3 = mat3(instanceMatrix) * sn3;
+          #endif
+          vSP = (modelMatrix * sp4).xyz;
+          vSN = normalize(mat3(modelMatrix) * sn3);
+        }`,
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSP;\nvarying vec3 vSN;')
+      .replace(
+        '#include <map_fragment>',
+        `{
+          vec3 an = pow(abs(normalize(vSN)), vec3(4.0));
+          an /= (an.x + an.y + an.z + 1e-4);
+          vec3 tc = texture2D(map, vSP.zy * ${inv}).rgb * an.x + texture2D(map, vSP.xz * ${inv}).rgb * an.y + texture2D(map, vSP.xy * ${inv}).rgb * an.z;
+          diffuseColor.rgb *= tc;
+        }`,
+      );
+  };
+  m.customProgramCacheKey = () => `stoneToon|${inv}`;
+  stoneCache.set(key, m);
+  return m;
 }

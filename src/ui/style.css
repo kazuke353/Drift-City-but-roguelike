@@ -108,7 +108,7 @@ img { -webkit-user-drag: none; user-drag: none; }
 .mod-chip { display: flex; align-items: center; gap: 7px; padding: 3px 16px 3px 12px; font-weight: 800; font-style: italic; font-size: 15px; text-transform: uppercase; background: rgba(9,9,12,.9); border-left: 4px solid var(--white); clip-path: polygon(0 0, 100% 0, 94% 100%, 0 100%); }
 
 /* boss */
-.boss-bar { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(760px, 58vw); display: flex; align-items: center; gap: 0; filter: drop-shadow(3px 4px 0 rgba(0,0,0,.7)); }
+.boss-bar { position: absolute; left: 350px; right: 380px; top: 10px; display: flex; align-items: center; gap: 0; filter: drop-shadow(3px 4px 0 rgba(0,0,0,.7)); }
 .boss-bar .bicon { width: 92px; height: 92px; flex: none; display: flex; align-items: center; justify-content: center; margin-right: -14px; z-index: 2; position: relative; background: var(--red); clip-path: polygon(50% 0, 62% 14%, 82% 4%, 80% 26%, 98% 36%, 84% 52%, 96% 74%, 74% 72%, 66% 96%, 50% 82%, 34% 96%, 26% 72%, 4% 74%, 16% 52%, 2% 36%, 20% 26%, 18% 4%, 38% 14%); }
 .boss-bar .bicon::before { content: ''; position: absolute; inset: 7px; background: #0a0a0c; clip-path: inherit; }
 .boss-bar .bicon img { position: relative; width: 58px; height: 58px; object-fit: contain; }

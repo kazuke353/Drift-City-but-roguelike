@@ -462,7 +462,11 @@ function buildHearse(K: Ctx) {
     add(pathTube([V(s * 1.02, 1.05, -0.3), V(s * 1.12, 1.35, -0.55), V(s * 1.02, 1.72, -0.75)], 0.045, 14), m.gold);
     add(bevBox(0.16, 0.12, 0.08, 0.03), m.dark, s * 1.02, 1.28, 0.9);
   });
-  add(bevBox(2.02, 0.08, 2.5, 0.03), m.gold, 0, 1.79, -1.4);
+  add(bevBox(1.9, 0.08, 2.4, 0.03), m.dark, 0, 1.79, -1.4);
+  for (const s of [-1, 1]) add(bevBox(0.09, 0.1, 2.46, 0.02), m.gold, s * 0.98, 1.8, -1.4);
+  for (const z of [-0.18, -2.62]) add(bevBox(2.0, 0.1, 0.09, 0.02), m.gold, 0, 1.8, z);
+  add(bevBox(0.08, 0.1, 2.0, 0.02), m.gold, 0, 1.81, -1.4);
+  add(bevBox(1.0, 0.1, 0.08, 0.02), m.gold, 0, 1.81, -1.2);
   for (const z of [-0.4, -2.4]) for (const s of [-0.92, 0.92]) add(new THREE.OctahedronGeometry(0.13), m.gold, s, 1.92, z);
   add(new THREE.BoxGeometry(0.1, 0.5, 0.1), m.gold, 0, 2.05, -1.4);
   add(new THREE.BoxGeometry(0.4, 0.1, 0.1), m.gold, 0, 2.15, -1.4);

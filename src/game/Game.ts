@@ -452,6 +452,20 @@ export class Game {
       },
       state: () => ({ state: g.state, floor: g.run?.floor, hp: g.run?.hp, enemies: g.world?.enemies.length, room: g.world?.currentRoom, pos: g.world ? [g.world.player.pos.x, g.world.player.pos.z] : null, calls: g.renderer.stats.calls, tris: g.renderer.stats.tris }),
       tiles: () => (g.world ? TILE : 0),
+      pick: (px: number, py: number) => {
+        const cam = g.renderer.camera;
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(new THREE.Vector2((px / window.innerWidth) * 2 - 1, -((py / window.innerHeight) * 2 - 1)), cam);
+        const hits = rc.intersectObjects(g.renderer.scene.children, true).slice(0, 4);
+        return hits.map((h) => {
+          const o = h.object as THREE.Mesh;
+          const chain: string[] = [];
+          let q: THREE.Object3D | null = o;
+          while (q && chain.length < 6) { chain.push(q.name || q.type); q = q.parent; }
+          const m = o.material as THREE.MeshToonMaterial;
+          return { d: +h.distance.toFixed(1), geo: o.geometry?.type, color: m?.color?.getHexString?.(), inst: (o as any).isInstancedMesh, chain: chain.join('<') };
+        });
+      },
       xp: (n: number) => {
         const r = g.run;
         if (!r) return;
